@@ -1792,6 +1792,25 @@ function shellPage({ title, description, canonicalPath, navActive, contentHtml, 
       </div>
     </div>
   </header>
+  <!-- Section anchor strip — desktop-only secondary nav -->
+  <nav class="section-anchor-strip" aria-label="Sections">
+    <div class="container">
+      <div class="section-anchor-strip-inner">
+        <a href="/benefits">Benefits</a>
+        <a href="/health">Health</a>
+        <a href="/service">Service</a>
+        <a href="/transition">Transition</a>
+        <a href="/advocacy">Advocacy</a>
+        <a href="/legacy">Legacy</a>
+        <a href="/community">Community</a>
+        <a href="/family">Family</a>
+        <a href="/branches">Branches</a>
+        <a href="/states">By State</a>
+        <a href="/tools">Tools</a>
+        <a href="/crisis" style="color:var(--crisis);">Crisis 988</a>
+      </div>
+    </div>
+  </nav>
   <div class="mobile-nav-overlay" id="mobile-overlay"></div>
   <aside class="mobile-nav" id="mobile-nav">
     <a href="/">Briefing</a>
