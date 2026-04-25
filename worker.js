@@ -39,6 +39,11 @@ export default {
       return handleHealth(env);
     }
 
+    // Public admin dashboard (read-only) — source health, image fill rate, etc.
+    if (pathname === '/admin/health' || pathname === '/admin') {
+      return serveAdminHealth(env, url, request);
+    }
+
     // Analytics endpoint (for querying)
     if (pathname === '/api/analytics') {
       return handleAnalytics(env, url);
@@ -322,11 +327,15 @@ async function serveIntelligence(env, cors, url) {
     }
 
     // Deduplicate articles by normalized title (keeps first/newest occurrence)
-    // Also clean excerpts of leaked HTML attributes
-    const allArticles = deduplicateArticles(data.articles || []).map(a => ({
-      ...a,
-      excerpt: a.excerpt ? cleanExcerpt(a.excerpt) : a.excerpt
-    }));
+    // Filter broken-link articles + clean excerpts.
+    // Low-quality articles are hidden from the main feed but accessible by direct URL.
+    const allArticles = deduplicateArticles(data.articles || [])
+      .filter(a => a.linkStatus !== 'broken')
+      .filter(a => !a.lowQuality || url.searchParams.get('all') === '1')
+      .map(a => ({
+        ...a,
+        excerpt: a.excerpt ? cleanExcerpt(a.excerpt) : a.excerpt
+      }));
 
     // Pagination params
     const limit = Math.min(parseInt(url.searchParams.get('limit')) || 30, 200);
@@ -739,7 +748,7 @@ async function serveNewsPage(env, url, request) {
         const cat = a.category ? a.category.charAt(0).toUpperCase() + a.category.slice(1) : 'News';
         const excerpt = cleanExcerpt(a.excerpt || '').slice(0, 200);
         const rel = formatRelTime(a.publishDate);
-        return `<li class="row ${a.image ? '' : 'no-image'}"><a href="/news/${escapeHtml(slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);"><span class="tag">${escapeHtml(cat)}</span><h3 class="row-title">${escapeHtml(a.title)}</h3>${excerpt ? `<p class="row-excerpt">${escapeHtml(excerpt)}</p>` : ''}<div class="byline"><span class="byline-source">${escapeHtml(a.source || '')}</span><span class="byline-divider">·</span><span>${rel}</span></div></a>${a.image ? `<a href="/news/${escapeHtml(slug)}"><img src="${escapeHtml(a.image)}" alt="" class="row-image" loading="lazy" onerror="this.src='/placeholder.svg';this.onerror=null"></a>` : ''}</li>`;
+        return `<li class="row"><a href="/news/${escapeHtml(slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);"><span class="tag">${escapeHtml(cat)}</span><h3 class="row-title">${escapeHtml(a.title)}</h3>${excerpt ? `<p class="row-excerpt">${escapeHtml(excerpt)}</p>` : ''}<div class="byline"><span class="byline-source">${escapeHtml(a.source || '')}</span><span class="byline-divider">·</span><span>${rel}</span></div></a><a href="/news/${escapeHtml(slug)}">${img(a, 'row')}</a></li>`;
       }).join('');
       html = html.replace(/<li class="loading">Loading news…<\/li>/, listHtml);
       html = html.replace(/<li class="loading">Loading news\.\.\.<\/li>/, listHtml);
@@ -896,7 +905,7 @@ function injectArticleData(template, article) {
         <a class="action-btn" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=${shareUrl}">f Share</a>
         <a class="action-btn" href="mailto:?subject=${shareTitle}&body=${shareUrl}">✉ Email</a>
       </div>
-      ${article.image ? `<figure class="story-hero"><img src="${escapeHtml(article.image)}" alt="" onerror="this.src='/placeholder.svg';this.onerror=null"></figure>` : ''}
+      ${article.image ? `<figure class="story-hero"><img src="${escapeHtml(article.image)}" alt="${escapeHtml(article.title || '')}" onerror="this.parentElement.outerHTML='<figure class=\\'story-hero\\'>${placeholderHtml(article, 'hero').replace(/'/g, '\\\'')}</figure>';this.onerror=null"></figure>` : `<figure class="story-hero">${placeholderHtml(article, 'hero')}</figure>`}
       <div class="story-body">
         ${formatArticleContent(article.content || article.excerpt || 'No content available.')}
       </div>
@@ -986,7 +995,7 @@ async function serveHomepage(env, url, request) {
     if (lead) {
       const leadHtml = `
         <a href="/news/${escapeHtml(lead.slug || generateSlug(lead.title))}" class="lead-story">
-          ${lead.image ? `<img class="lead-story-image" src="${escapeHtml(lead.image)}" alt="" loading="eager" onerror="this.src='/placeholder.svg';this.onerror=null">` : `<div class="lead-story-image"></div>`}
+          ${img(lead, 'lead', 'eager')}
           <div class="lead-story-body">
             <span class="tag">${escapeHtml(formatCat(lead.category))}</span>
             <h2>${escapeHtml(lead.title)}</h2>
@@ -1022,7 +1031,7 @@ async function serveHomepage(env, url, request) {
       const storyHtml = otherStories.map(s => `
         <article class="card">
           <a href="/news/${escapeHtml(s.slug || generateSlug(s.title))}" style="display:flex;flex-direction:column;flex:1;">
-            ${s.image ? `<img class="card-image" src="${escapeHtml(s.image)}" alt="" loading="lazy" onerror="this.src='/placeholder.svg';this.onerror=null">` : `<div class="card-image" style="background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--font-headline);font-size:2rem;color:var(--ink-soft);">${escapeHtml(formatCat(s.category)).charAt(0)}</div>`}
+            ${img(s, 'card')}
             <div class="card-body">
               <span class="tag">${escapeHtml(formatCat(s.category))}</span>
               <h3 class="card-title">${escapeHtml(s.title)}</h3>
@@ -1660,7 +1669,7 @@ async function serveSectionPage(env, url, request, section) {
     const restHtml = rest.map(s => {
       const slug = s.slug || generateSlug(s.title);
       const excerpt = (s.excerpt || '').slice(0, 200);
-      return `<li class="row ${s.image ? '' : 'no-image'}"><a href="/news/${escapeHtml(slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);"><span class="tag">${escapeHtml(meta.title)}</span><h3 class="row-title">${escapeHtml(s.title)}</h3>${excerpt ? `<p class="row-excerpt">${escapeHtml(excerpt)}</p>` : ''}<div class="byline"><span class="byline-source">${escapeHtml(s.source || '')}</span><span class="byline-divider">·</span><span>${formatRelTime(s.publishDate)}</span></div></a>${s.image ? `<a href="/news/${escapeHtml(slug)}"><img src="${escapeHtml(s.image)}" alt="${escapeHtml(s.title || '')}" class="row-image" loading="lazy" onerror="this.src='/placeholder.svg';this.onerror=null"></a>` : ''}</li>`;
+      return `<li class="row"><a href="/news/${escapeHtml(slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);"><span class="tag">${escapeHtml(meta.title)}</span><h3 class="row-title">${escapeHtml(s.title)}</h3>${excerpt ? `<p class="row-excerpt">${escapeHtml(excerpt)}</p>` : ''}<div class="byline"><span class="byline-source">${escapeHtml(s.source || '')}</span><span class="byline-divider">·</span><span>${formatRelTime(s.publishDate)}</span></div></a><a href="/news/${escapeHtml(slug)}">${img(s, 'row')}</a></li>`;
     }).join('');
 
     const quickLinksHtml = meta.quickLinks?.length ? `
@@ -1801,7 +1810,7 @@ async function serveBranchPage(env, url, request, branch) {
 
     const articleListHtml = articles.length ? articles.map(s => {
       const slug = s.slug || generateSlug(s.title);
-      return `<li class="row ${s.image ? '' : 'no-image'}"><a href="/news/${escapeHtml(slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);"><span class="tag">${escapeHtml(s.category || meta.name)}</span><h3 class="row-title">${escapeHtml(s.title)}</h3>${s.excerpt ? `<p class="row-excerpt">${escapeHtml(s.excerpt.slice(0, 200))}</p>` : ''}<div class="byline"><span class="byline-source">${escapeHtml(s.source || '')}</span><span class="byline-divider">·</span><span>${formatRelTime(s.publishDate)}</span></div></a>${s.image ? `<a href="/news/${escapeHtml(slug)}"><img src="${escapeHtml(s.image)}" alt="${escapeHtml(s.title || '')}" class="row-image" loading="lazy" onerror="this.src='/placeholder.svg';this.onerror=null"></a>` : ''}</li>`;
+      return `<li class="row"><a href="/news/${escapeHtml(slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);"><span class="tag">${escapeHtml(s.category || meta.name)}</span><h3 class="row-title">${escapeHtml(s.title)}</h3>${s.excerpt ? `<p class="row-excerpt">${escapeHtml(s.excerpt.slice(0, 200))}</p>` : ''}<div class="byline"><span class="byline-source">${escapeHtml(s.source || '')}</span><span class="byline-divider">·</span><span>${formatRelTime(s.publishDate)}</span></div></a><a href="/news/${escapeHtml(slug)}">${img(s, 'row')}</a></li>`;
     }).join('') : '';
 
     const content = `
@@ -2413,6 +2422,180 @@ async function servePressPage(env, url, request) {
     lede: 'Resources for journalists and organizations covering veteran issues.',
     body
   }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=86400' } });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PREMIUM IMAGE PLACEHOLDER — when no source image available
+// Renders an inline SVG with category-tinted gradient + source attribution.
+// Replaces the gray "letter on box" weak fallback.
+// ════════════════════════════════════════════════════════════════════════════
+
+function placeholderHtml(article, variant = 'card') {
+  const cat = (article.category || 'news').toLowerCase();
+  const catLabel = cat.charAt(0).toUpperCase() + cat.slice(1);
+  const sourceShort = (article.source || 'Veteran News').replace(/^The /, '').slice(0, 20);
+  // Get the initial letter as a graceful fallback graphic
+  const initial = (article.title || sourceShort).trim().charAt(0).toUpperCase();
+  const className = `card-placeholder cat-${cat}` + (variant === 'lead' ? ' lead-story-image' : variant === 'row' ? ' row-image' : variant === 'hero' ? ' story-hero-placeholder' : '');
+  return `<div class="${className}" role="img" aria-label="${escapeHtml(catLabel)}: ${escapeHtml(article.title || '')}">
+    <div class="card-placeholder-content">
+      <span class="card-placeholder-cat">${escapeHtml(catLabel)}</span>
+      <span class="card-placeholder-mark">${escapeHtml(initial)}</span>
+      <span class="card-placeholder-source">${escapeHtml(sourceShort)}</span>
+    </div>
+  </div>`;
+}
+
+function imageOrPlaceholder(article, variant = 'card', extraImgClass = '') {
+  if (article.image) {
+    const cls = variant === 'lead' ? 'lead-story-image' : variant === 'row' ? 'row-image' : variant === 'hero' ? 'story-hero-placeholder' : 'card-image';
+    const merged = (cls + ' ' + extraImgClass).trim();
+    return `<img class="${merged}" src="${escapeHtml(article.image)}" alt="${escapeHtml(article.title || '')}" loading="lazy" onerror="this.outerHTML=this.dataset.fallback">` +
+      `<template>${placeholderHtml(article, variant)}</template>`; // not actually used; simplified below
+  }
+  return placeholderHtml(article, variant);
+}
+
+// Simpler image-or-placeholder used inline in template strings (no JS fallback wiring needed
+// since we now also degrade gracefully if the URL itself 404s — by swapping to placeholder via JS)
+function img(article, variant = 'card', loading = 'lazy') {
+  if (article.image) {
+    const cls = variant === 'lead' ? 'lead-story-image' : variant === 'row' ? 'row-image' : variant === 'hero' ? 'story-hero-img' : 'card-image';
+    const fallbackId = 'ph-' + (article.id || '').toString().replace(/[^a-z0-9]/gi, '').slice(0, 16);
+    return `<img class="${cls}" src="${escapeHtml(article.image)}" alt="${escapeHtml(article.title || '')}" loading="${loading}" onerror="(function(el){var f=document.getElementById('${fallbackId}');if(f){el.replaceWith(f.content.cloneNode(true))}else{el.style.display='none'}})(this);this.onerror=null">
+<template id="${fallbackId}">${placeholderHtml(article, variant)}</template>`;
+  }
+  return placeholderHtml(article, variant);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN DASHBOARD
+// ════════════════════════════════════════════════════════════════════════════
+async function serveAdminHealth(env, url, request) {
+  let scraperHealth = null;
+  try {
+    // Try to fetch from the scraper worker (same KV is bound, but the worker
+    // may be a separate deployment so we read directly here too).
+    const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+    const articles = data?.articles || [];
+    const totalArticles = articles.length;
+    const articlesWithImages = articles.filter(a => a.image).length;
+    const imageFillRate = totalArticles ? Math.round((articlesWithImages / totalArticles) * 100) : 0;
+    const brokenLinks = articles.filter(a => a.linkStatus === 'broken').length;
+    const lowQuality = articles.filter(a => a.lowQuality).length;
+    const lastScrape = data?.lastScrape;
+    const lastBackfill = data?.lastImageBackfill;
+    const lastDeadLink = data?.lastDeadLinkSweep;
+
+    // Read source health entries
+    const allKeys = await env.ARTICLES_KV.list({ prefix: 'health:' });
+    const sourceHealth = await Promise.all(allKeys.keys.map(async (k) => {
+      const v = await env.ARTICLES_KV.get(k.name, { type: 'json' });
+      return { name: k.name.replace('health:', ''), ...v };
+    }));
+
+    scraperHealth = {
+      totalArticles, articlesWithImages, imageFillRate,
+      brokenLinks, lowQuality,
+      lastScrape, lastBackfill, lastDeadLink,
+      sourceHealth: sourceHealth.sort((a, b) => (a.score ?? 100) - (b.score ?? 100))
+    };
+  } catch (e) {
+    scraperHealth = { error: e.message };
+  }
+
+  // JSON if asked
+  if (url.searchParams.get('format') === 'json') {
+    return json(scraperHealth, 200, { 'Access-Control-Allow-Origin': '*' });
+  }
+
+  // HTML dashboard
+  const fillStatus = scraperHealth.imageFillRate >= 80 ? 'ok'
+    : scraperHealth.imageFillRate >= 60 ? 'warn' : 'bad';
+  const sourceCards = (scraperHealth.sourceHealth || []).map(s => {
+    const status = s.suspended ? 'bad' : (s.score < 60 ? 'warn' : 'ok');
+    const lastSuccess = s.lastSuccess ? formatRelTime(s.lastSuccess) : 'never';
+    return `<div class="dash-card ${status}">
+      <div class="dash-card-label">${escapeHtml(s.name)}</div>
+      <div class="dash-card-value">${s.score ?? 0}<span style="font-size:1rem;color:var(--ink-soft);">/100</span></div>
+      <div class="dash-card-detail">
+        ${s.suspended ? '<strong style="color:var(--crisis)">SUSPENDED</strong> · ' : ''}
+        ${s.consecutiveFailures || 0} failures · ${s.totalArticles || 0} articles · last ok ${lastSuccess}
+        ${s.lastError ? `<br><small style="color:var(--ink-soft);">${escapeHtml(s.lastError.slice(0, 80))}</small>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <div class="eyebrow">Status Dashboard</div>
+        <h1 class="page-title">Newsroom health</h1>
+        <p class="page-lede">Live view of scraper status, source health, image-fill rate, and link integrity.</p>
+      </div>
+    </section>
+    <div class="container">
+      <h2 style="font-family:var(--font-headline);font-size:1.5rem;margin-bottom:var(--s-4);">Newsroom totals</h2>
+      <div class="dash-grid">
+        <div class="dash-card ok">
+          <div class="dash-card-label">Articles</div>
+          <div class="dash-card-value">${scraperHealth.totalArticles ?? 0}</div>
+          <div class="dash-card-detail">In rotation</div>
+        </div>
+        <div class="dash-card ${fillStatus}">
+          <div class="dash-card-label">Image Fill Rate</div>
+          <div class="dash-card-value">${scraperHealth.imageFillRate ?? 0}%</div>
+          <div class="dash-card-detail">${scraperHealth.articlesWithImages ?? 0} of ${scraperHealth.totalArticles ?? 0} have images</div>
+        </div>
+        <div class="dash-card ${scraperHealth.brokenLinks > 5 ? 'warn' : 'ok'}">
+          <div class="dash-card-label">Broken Links</div>
+          <div class="dash-card-value">${scraperHealth.brokenLinks ?? 0}</div>
+          <div class="dash-card-detail">Excluded from feed</div>
+        </div>
+        <div class="dash-card ${scraperHealth.lowQuality > 50 ? 'warn' : 'ok'}">
+          <div class="dash-card-label">Low Quality</div>
+          <div class="dash-card-value">${scraperHealth.lowQuality ?? 0}</div>
+          <div class="dash-card-detail">Hidden from main feed</div>
+        </div>
+      </div>
+
+      <h2 style="font-family:var(--font-headline);font-size:1.5rem;margin:var(--s-7) 0 var(--s-4);">Last cron runs</h2>
+      <div class="dash-grid">
+        <div class="dash-card ok">
+          <div class="dash-card-label">Last Full Scrape</div>
+          <div class="dash-card-value" style="font-size:1.25rem;">${scraperHealth.lastScrape?.timestamp ? formatRelTime(scraperHealth.lastScrape.timestamp) : 'never'}</div>
+          <div class="dash-card-detail">${scraperHealth.lastScrape?.newArticles ?? 0} new · ${scraperHealth.lastScrape?.duration ? Math.round(scraperHealth.lastScrape.duration / 1000) : 0}s</div>
+        </div>
+        <div class="dash-card ok">
+          <div class="dash-card-label">Last Image Backfill</div>
+          <div class="dash-card-value" style="font-size:1.25rem;">${scraperHealth.lastBackfill?.timestamp ? formatRelTime(scraperHealth.lastBackfill.timestamp) : 'never'}</div>
+          <div class="dash-card-detail">${scraperHealth.lastBackfill?.backfilled ?? 0}/${scraperHealth.lastBackfill?.attempted ?? 0} recovered</div>
+        </div>
+        <div class="dash-card ok">
+          <div class="dash-card-label">Last Dead-Link Sweep</div>
+          <div class="dash-card-value" style="font-size:1.25rem;">${scraperHealth.lastDeadLink?.timestamp ? formatRelTime(scraperHealth.lastDeadLink.timestamp) : 'never'}</div>
+          <div class="dash-card-detail">${scraperHealth.lastDeadLink?.broken ?? 0}/${scraperHealth.lastDeadLink?.checked ?? 0} broken</div>
+        </div>
+      </div>
+
+      <h2 style="font-family:var(--font-headline);font-size:1.5rem;margin:var(--s-7) 0 var(--s-4);">Sources <small style="color:var(--ink-soft);font-size:0.75rem;font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.08em;font-weight:600;">${(scraperHealth.sourceHealth || []).length} tracked</small></h2>
+      <div class="dash-grid">
+        ${sourceCards || '<div class="loading">No source-health data yet — runs after first cron tick.</div>'}
+      </div>
+
+      <p style="margin-top:var(--s-7);color:var(--ink-soft);font-size:0.875rem;">
+        Raw JSON: <a href="/admin/health?format=json">/admin/health?format=json</a>
+      </p>
+    </div>`;
+
+  return new Response(shellPage({
+    title: 'Newsroom Health — Veteran News',
+    description: 'Live status dashboard for Veteran News scraper, sources, and content quality.',
+    canonicalPath: '/admin/health',
+    navActive: '',
+    contentHtml: content,
+    extraHead: '<meta name="robots" content="noindex">'
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
 async function serveContactPage(env, url, request) {

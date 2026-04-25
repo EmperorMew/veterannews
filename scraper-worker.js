@@ -200,8 +200,21 @@ const CATEGORIES = {
 // =============================================================================
 
 export default {
-  // Scheduled scraping (cron trigger)
+  // Scheduled scraping — multiple crons routed by pattern
   async scheduled(event, env, ctx) {
+    // Backfill images cron (every 2h) — separate, lighter
+    if (event.cron === '30 */2 * * *') {
+      console.log('🖼️  Image backfill cron starting...');
+      ctx.waitUntil(backfillImages(env));
+      return;
+    }
+    // Dead-link sweep (daily 04:00 UTC)
+    if (event.cron === '0 4 * * *') {
+      console.log('🔗 Dead-link sweep starting...');
+      ctx.waitUntil(deadLinkSweep(env));
+      return;
+    }
+    // Default: full scrape (every 6h)
     console.log('🎖️ Veteran News Scraper: Starting scheduled scrape...');
     ctx.waitUntil(scrapeAllSources(env));
   },
@@ -210,19 +223,16 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Manual scrape trigger
     if (url.pathname === '/scrape' && request.method === 'POST') {
       ctx.waitUntil(scrapeAllSources(env));
       return jsonResponse({ status: 'Scrape initiated', timestamp: new Date().toISOString() });
     }
 
-    // Scrape events only
     if (url.pathname === '/scrape-events' && request.method === 'POST') {
       ctx.waitUntil(scrapeAllEvents(env));
       return jsonResponse({ status: 'Event scrape initiated', timestamp: new Date().toISOString() });
     }
 
-    // Clear events and re-scrape
     if (url.pathname === '/clear-events' && request.method === 'POST') {
       const data = await env.ARTICLES_KV.get('articles', { type: 'json' }) || {};
       data.events = [];
@@ -231,24 +241,38 @@ export default {
       return jsonResponse({ status: 'Events cleared and re-scrape initiated', timestamp: new Date().toISOString() });
     }
 
-    // Status check
+    // Manual image backfill
+    if (url.pathname === '/backfill-images' && request.method === 'POST') {
+      ctx.waitUntil(backfillImages(env));
+      return jsonResponse({ status: 'Image backfill initiated', timestamp: new Date().toISOString() });
+    }
+
+    // Manual dead-link sweep
+    if (url.pathname === '/dead-link-sweep' && request.method === 'POST') {
+      ctx.waitUntil(deadLinkSweep(env));
+      return jsonResponse({ status: 'Dead link sweep initiated', timestamp: new Date().toISOString() });
+    }
+
+    // Source health
+    if (url.pathname === '/health') {
+      return handleSourceHealth(env);
+    }
+
     if (url.pathname === '/status') {
       return handleStatus(env);
     }
 
-    // Articles endpoint (for reading current data)
     if (url.pathname === '/articles') {
       const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
       return jsonResponse(data || { articles: [] });
     }
 
-    // Events endpoint
     if (url.pathname === '/events') {
       const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
       return jsonResponse({ events: data?.events || [] });
     }
 
-    return new Response('Veteran News Scraper\n\nPOST /scrape - Trigger full scrape\nPOST /scrape-events - Scrape events only\nGET /status - Check status', {
+    return new Response('Veteran News Scraper\n\nPOST /scrape - full scrape\nPOST /scrape-events\nPOST /backfill-images\nPOST /dead-link-sweep\nGET /status\nGET /health', {
       headers: { 'Content-Type': 'text/plain' }
     });
   }
@@ -289,13 +313,32 @@ async function scrapeAllSources(env) {
     batches.push(NEWS_SOURCES.slice(i, i + 3));
   }
 
+  // Skip suspended sources unless cooled-off (24h since last error)
+  const isSuspendedHealthCheck = async (source) => {
+    const h = await getSourceHealth(env, source.name);
+    if (!h?.suspended) return false;
+    const lastErrAt = h.lastErrorAt ? new Date(h.lastErrorAt).getTime() : 0;
+    return (Date.now() - lastErrAt) < 24 * 3600 * 1000;
+  };
+
   for (const batch of batches) {
+    // Filter suspended sources upfront
+    const activeBatch = [];
+    for (const source of batch) {
+      if (await isSuspendedHealthCheck(source)) {
+        sourceResults.push({ name: source.name, status: 'suspended' });
+        console.log(`⏸️  ${source.name}: suspended (low health score)`);
+        continue;
+      }
+      activeBatch.push(source);
+    }
+
     const results = await Promise.allSettled(
-      batch.map(source => scrapeSource(source))
+      activeBatch.map(source => scrapeSource(source, env))
     );
 
     for (let i = 0; i < results.length; i++) {
-      const source = batch[i];
+      const source = activeBatch[i];
       const result = results[i];
 
       if (result.status === 'fulfilled') {
@@ -314,20 +357,21 @@ async function scrapeAllSources(env) {
         });
 
         allNewArticles = allNewArticles.concat(newArticles);
+        const imageFillRate = articles.length ? articles.filter(a => a.image).length / articles.length : 0;
         sourceResults.push({
           name: source.name,
           status: 'success',
           fetched: articles.length,
-          new: newArticles.length
+          new: newArticles.length,
+          imageFillRate: Math.round(imageFillRate * 100)
         });
-        console.log(`✅ ${source.name}: ${newArticles.length} new / ${articles.length} total`);
+        await updateSourceHealth(env, source.name, true, newArticles.length);
+        console.log(`✅ ${source.name}: ${newArticles.length} new / ${articles.length} total · ${Math.round(imageFillRate * 100)}% images`);
       } else {
-        sourceResults.push({
-          name: source.name,
-          status: 'error',
-          error: result.reason?.message || 'Unknown error'
-        });
-        console.error(`❌ ${source.name}: ${result.reason?.message}`);
+        const errMsg = result.reason?.message || 'Unknown error';
+        sourceResults.push({ name: source.name, status: 'error', error: errMsg });
+        await updateSourceHealth(env, source.name, false, 0, errMsg);
+        console.error(`❌ ${source.name}: ${errMsg}`);
       }
     }
   }
@@ -366,34 +410,91 @@ async function scrapeAllSources(env) {
 // RSS SCRAPING
 // =============================================================================
 
-async function scrapeSource(source) {
-  if (source.type !== 'rss') {
-    return [];
+async function scrapeSource(source, env) {
+  if (source.type !== 'rss') return [];
+
+  // Retry with exponential backoff: only on 5xx / network errors
+  const delays = [0, 1500, 4000];
+  let lastError;
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt]) await new Promise(r => setTimeout(r, delays[attempt]));
+    try {
+      const response = await fetch(source.url, {
+        headers: {
+          'User-Agent': 'VeteranNews/1.0 (+https://veteransnews.org/about)',
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+      if (!response.ok) {
+        if (response.status >= 500) {
+          lastError = new Error(`HTTP ${response.status}`);
+          continue; // retry
+        }
+        throw new Error(`HTTP ${response.status}`); // 4xx — no retry
+      }
+      const xml = await response.text();
+      const items = parseRSS(xml);
+      const articles = items.map(item => transformArticle(item, source)).filter(Boolean);
+
+      // OG-image enrichment for items with no RSS image (parallel, throttled)
+      if (env?.ARTICLES_KV) {
+        const noImage = articles.filter(a => !a.image).slice(0, 6); // cap to 6 per source/run for budget
+        if (noImage.length > 0) {
+          const enriched = await Promise.allSettled(
+            noImage.map(a => fetchOgImage(a.sourceUrl, env).then(img => { if (img) a.image = img; }))
+          );
+        }
+      }
+      return articles;
+    } catch (e) {
+      lastError = e;
+      // Network errors (timeout/DNS) — retry
+      if (e.name === 'TimeoutError' || /fetch|network|abort/i.test(e.message)) continue;
+      throw e;
+    }
   }
+  throw lastError || new Error('scrape failed after retries');
+}
 
-  const response = await fetch(source.url, {
-    headers: {
-      'User-Agent': 'VeteranNews/1.0 (News Aggregator)',
-      'Accept': 'application/rss+xml, application/xml, text/xml'
-    },
-    signal: AbortSignal.timeout(15000)
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+// Update per-source health record after each scrape attempt
+async function updateSourceHealth(env, sourceName, success, articlesIn = 0, error = null) {
+  if (!env?.ARTICLES_KV) return;
+  const key = `health:${sourceName}`;
+  const cur = (await env.ARTICLES_KV.get(key, { type: 'json' })) || {
+    score: 100, consecutiveFailures: 0, lastSuccess: null, lastError: null,
+    runs: 0, totalArticles: 0
+  };
+  cur.runs = (cur.runs || 0) + 1;
+  if (success) {
+    cur.score = Math.min(100, (cur.score || 100) + 5);
+    cur.consecutiveFailures = 0;
+    cur.lastSuccess = new Date().toISOString();
+    cur.totalArticles = (cur.totalArticles || 0) + articlesIn;
+  } else {
+    cur.score = Math.max(0, (cur.score || 100) - 20);
+    cur.consecutiveFailures = (cur.consecutiveFailures || 0) + 1;
+    cur.lastError = error ? String(error).slice(0, 200) : 'unknown';
+    cur.lastErrorAt = new Date().toISOString();
   }
+  cur.suspended = cur.score < 20 || cur.consecutiveFailures >= 5;
+  await env.ARTICLES_KV.put(key, JSON.stringify(cur), { expirationTtl: 30 * 86400 });
+}
 
-  const xml = await response.text();
-  const items = parseRSS(xml);
-
-  return items.map(item => transformArticle(item, source)).filter(Boolean);
+async function getSourceHealth(env, sourceName) {
+  if (!env?.ARTICLES_KV) return null;
+  return env.ARTICLES_KV.get(`health:${sourceName}`, { type: 'json' });
 }
 
 function parseRSS(xml) {
   const items = [];
+
+  // Extract channel-level fallback image (RSS 2.0 <image><url>)
+  const channelImageMatch = xml.match(/<image[^>]*>[\s\S]*?<url>([\s\S]*?)<\/url>[\s\S]*?<\/image>/i);
+  const channelImage = channelImageMatch ? cleanText(channelImageMatch[1]) : null;
+
   const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
   let match;
-
   while ((match = itemRegex.exec(xml)) !== null) {
     const itemXml = match[1];
     items.push({
@@ -405,8 +506,35 @@ function parseRSS(xml) {
       author: extractTag(itemXml, 'dc:creator') || extractTag(itemXml, 'author'),
       categories: extractAllTags(itemXml, 'category'),
       enclosure: extractEnclosure(itemXml),
-      mediaContent: extractMediaContent(itemXml)
+      mediaContent: extractMediaContent(itemXml),
+      mediaThumbnail: extractMediaThumbnail(itemXml),
+      itunesImage: extractItunesImage(itemXml),
+      channelImage
     });
+  }
+
+  // Atom support (in case feed uses <entry> instead of <item>)
+  if (items.length === 0) {
+    const entryRegex = /<entry[^>]*>([\s\S]*?)<\/entry>/gi;
+    let amatch;
+    while ((amatch = entryRegex.exec(xml)) !== null) {
+      const ex = amatch[1];
+      const linkMatch = ex.match(/<link[^>]+href=["']([^"']+)["']/i);
+      items.push({
+        title: extractTag(ex, 'title'),
+        link: linkMatch ? linkMatch[1] : '',
+        description: extractTag(ex, 'summary'),
+        content: extractTag(ex, 'content'),
+        pubDate: extractTag(ex, 'updated') || extractTag(ex, 'published'),
+        author: extractTag(ex, 'name') || '',
+        categories: extractAllTags(ex, 'category'),
+        enclosure: extractAtomEnclosure(ex),
+        mediaContent: extractMediaContent(ex),
+        mediaThumbnail: extractMediaThumbnail(ex),
+        itunesImage: extractItunesImage(ex),
+        channelImage
+      });
+    }
   }
 
   return items;
@@ -439,14 +567,90 @@ function extractAllTags(xml, tagName) {
   return results;
 }
 
+function isImageUrl(url) {
+  if (!url) return false;
+  // Accept obvious image extensions OR cdn paths that Cloudflare often produces without extensions.
+  // Reject tracking pixels, audio, video.
+  if (/\.(mp3|wav|m4a|mp4|mov|avi|webm|m3u8)(\?|$)/i.test(url)) return false;
+  if (/(1x1|pixel|tracking|spacer|blank|transparent)\.(gif|png)/i.test(url)) return false;
+  if (/\.(jpe?g|png|webp|gif|avif)(\?|$)/i.test(url)) return true;
+  // Common image-host CDNs/paths without extensions
+  if (/(images\.|img\.|cdn\.|wp-content\/uploads|media\.|imageapi)/i.test(url)) return true;
+  return false;
+}
+
 function extractEnclosure(xml) {
-  const match = xml.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]*>/i);
-  return match ? match[1] : null;
+  // Iterate all enclosures, prefer ones with type="image/*"
+  const matches = [...xml.matchAll(/<enclosure[^>]+>/gi)];
+  for (const m of matches) {
+    const tag = m[0];
+    const typeMatch = tag.match(/type=["']([^"']+)["']/i);
+    const urlMatch = tag.match(/url=["']([^"']+)["']/i);
+    if (!urlMatch) continue;
+    const url = urlMatch[1];
+    if (typeMatch && /^image\//i.test(typeMatch[1])) return url;
+    if (!typeMatch && isImageUrl(url)) return url;
+  }
+  return null;
+}
+
+function extractAtomEnclosure(xml) {
+  const matches = [...xml.matchAll(/<link[^>]+rel=["']enclosure["'][^>]*>/gi)];
+  for (const m of matches) {
+    const tag = m[0];
+    const typeMatch = tag.match(/type=["']([^"']+)["']/i);
+    const hrefMatch = tag.match(/href=["']([^"']+)["']/i);
+    if (!hrefMatch) continue;
+    if (!typeMatch || /^image\//i.test(typeMatch[1])) return hrefMatch[1];
+  }
+  return null;
 }
 
 function extractMediaContent(xml) {
-  const match = xml.match(/<media:content[^>]+url=["']([^"']+)["'][^>]*>/i);
-  return match ? match[1] : null;
+  // Iterate all <media:content> — prefer ones with image medium and largest dimensions
+  const matches = [...xml.matchAll(/<media:content[^>]+>/gi)];
+  let best = null;
+  let bestArea = 0;
+  for (const m of matches) {
+    const tag = m[0];
+    const mediumMatch = tag.match(/medium=["']([^"']+)["']/i);
+    const typeMatch = tag.match(/type=["']([^"']+)["']/i);
+    const urlMatch = tag.match(/url=["']([^"']+)["']/i);
+    if (!urlMatch) continue;
+    const url = urlMatch[1];
+    const isImage = (mediumMatch && /image/i.test(mediumMatch[1])) ||
+                    (typeMatch && /^image\//i.test(typeMatch[1])) ||
+                    isImageUrl(url);
+    if (!isImage) continue;
+    const w = parseInt(tag.match(/width=["'](\d+)["']/i)?.[1] || '0', 10);
+    const h = parseInt(tag.match(/height=["'](\d+)["']/i)?.[1] || '0', 10);
+    const area = w * h;
+    if (area > bestArea) { bestArea = area; best = url; }
+    if (!best) best = url;
+  }
+  return best;
+}
+
+function extractMediaThumbnail(xml) {
+  // <media:thumbnail url="..." width=... height=.../> — used heavily by Sightline (Military Times family)
+  const matches = [...xml.matchAll(/<media:thumbnail[^>]+>/gi)];
+  let best = null;
+  let bestArea = 0;
+  for (const m of matches) {
+    const urlMatch = m[0].match(/url=["']([^"']+)["']/i);
+    if (!urlMatch) continue;
+    const w = parseInt(m[0].match(/width=["'](\d+)["']/i)?.[1] || '0', 10);
+    const h = parseInt(m[0].match(/height=["'](\d+)["']/i)?.[1] || '0', 10);
+    const area = w * h;
+    if (area > bestArea) { bestArea = area; best = urlMatch[1]; }
+    if (!best) best = urlMatch[1];
+  }
+  return best;
+}
+
+function extractItunesImage(xml) {
+  const m = xml.match(/<itunes:image[^>]+href=["']([^"']+)["']/i);
+  return m ? m[1] : null;
 }
 
 // =============================================================================
@@ -458,17 +662,25 @@ function transformArticle(item, source) {
 
   const title = cleanText(item.title);
   const slug = generateSlug(title);
-  // Use content:encoded first, fall back to description. Both may be empty string from extractTag.
   const rawContent = (item.content && item.content.length > 10) ? item.content : (item.description || '');
   const excerpt = generateExcerpt(rawContent);
 
-  // Extract image
-  let image = item.enclosure || item.mediaContent || extractImageFromContent(rawContent);
+  // Image cascade: prefer high-quality RSS-supplied images.
+  // Order matches https://www.google.com/schemas/sitemap-news/0.9 best practices.
+  let image =
+    item.enclosure ||
+    item.mediaContent ||
+    item.mediaThumbnail ||
+    item.itunesImage ||
+    extractImageFromContent(rawContent) ||
+    item.channelImage ||
+    null;
 
-  // Detect category
+  // Strip Cloudflare/Fastly query-string sizing — let our renderer pick the dimensions
+  if (image) image = normalizeImageUrl(image);
+
   const category = detectCategory(item, source);
 
-  // Parse date
   let publishDate;
   try {
     publishDate = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
@@ -476,12 +688,21 @@ function transformArticle(item, source) {
     publishDate = new Date().toISOString();
   }
 
+  // Quality score for filtering low-value scrapes
+  const cleanContentText = htmlToText(rawContent);
+  const qualityScore =
+    (excerpt && excerpt.length >= 80 ? 25 : 0) +
+    (image ? 25 : 0) +
+    (cleanContentText.length >= 500 ? 30 : cleanContentText.length >= 200 ? 15 : 0) +
+    ((source.priority === 1) ? 20 : (source.priority === 2) ? 10 : 5) +
+    (item.author && item.author !== 'Veteran News' ? 10 : 0);
+
   return {
     id: generateId(item.link),
     slug,
     title,
     excerpt,
-    content: htmlToText(rawContent),
+    content: cleanContentText,
     category,
     author: cleanAuthor(item.author),
     publishDate,
@@ -490,9 +711,24 @@ function transformArticle(item, source) {
     sourceUrl: item.link,
     serviceBranch: source.serviceBranch || null,
     priority: source.priority,
+    qualityScore,
+    lowQuality: qualityScore < 30,
     scraped: true,
     scrapedAt: new Date().toISOString()
   };
+}
+
+function normalizeImageUrl(url) {
+  if (!url) return url;
+  try {
+    // Trim trailing whitespace/quotes from sloppy RSS
+    url = url.trim().replace(/[\s'"]+$/, '');
+    // Resolve protocol-relative URLs
+    if (url.startsWith('//')) url = 'https:' + url;
+    return url;
+  } catch {
+    return url;
+  }
 }
 
 function detectCategory(item, source) {
@@ -834,17 +1070,125 @@ function cleanAuthor(author) {
 function extractImageFromContent(content) {
   if (!content) return null;
 
-  // Look for img src
-  const imgMatch = content.match(/<img[^>]+src=["']([^"']+)["']/i);
-  if (imgMatch) {
-    const src = imgMatch[1];
-    // Skip tiny images (likely icons/trackers)
-    if (!src.includes('1x1') && !src.includes('pixel') && !src.includes('tracking')) {
-      return src;
-    }
-  }
+  // Find all <img> tags, pick the largest non-junk
+  const imgs = [...content.matchAll(/<img[^>]+>/gi)];
+  let best = null;
+  let bestArea = 0;
 
-  return null;
+  for (const m of imgs) {
+    const tag = m[0];
+    // Try src, data-src, data-lazy-src, data-original
+    let src = (tag.match(/\bsrc=["']([^"']+)["']/i) || [])[1] ||
+              (tag.match(/\bdata-src=["']([^"']+)["']/i) || [])[1] ||
+              (tag.match(/\bdata-lazy-src=["']([^"']+)["']/i) || [])[1] ||
+              (tag.match(/\bdata-original=["']([^"']+)["']/i) || [])[1];
+
+    // srcset — pick the largest URL
+    const srcset = (tag.match(/\bsrcset=["']([^"']+)["']/i) || [])[1];
+    if (srcset) {
+      const candidates = srcset.split(',').map(s => s.trim().split(/\s+/));
+      candidates.sort((a, b) => {
+        const aw = parseInt(a[1] || '0', 10);
+        const bw = parseInt(b[1] || '0', 10);
+        return bw - aw;
+      });
+      if (candidates[0]?.[0]) src = candidates[0][0];
+    }
+
+    if (!src) continue;
+    if (!isImageUrl(src) && !/^https?:/i.test(src)) continue;
+    if (/(1x1|pixel|spacer|blank|transparent|tracking|beacon)\b/i.test(src)) continue;
+    if (/\.gif(\?|$)/i.test(src) && /(spacer|blank|transparent|1x1)/i.test(src)) continue;
+
+    const w = parseInt(tag.match(/\bwidth=["'](\d+)/i)?.[1] || '0', 10);
+    const h = parseInt(tag.match(/\bheight=["'](\d+)/i)?.[1] || '0', 10);
+    const area = w * h;
+    if (!best || area > bestArea) { best = src; bestArea = area; }
+  }
+  return best;
+}
+
+// Try to fetch the OG image from the article page itself.
+// Used as a last-resort fallback when RSS provides no image.
+// Cached per URL in KV with 30-day TTL to avoid re-hammering.
+async function fetchOgImage(url, env) {
+  if (!url || !env?.ARTICLES_KV) return null;
+  const cacheKey = `og:${await hashStr(url)}`;
+  try {
+    const cached = await env.ARTICLES_KV.get(cacheKey);
+    if (cached) {
+      const v = cached === '__null__' ? null : cached;
+      return v;
+    }
+  } catch {}
+
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; VeteranNews/1.0; +https://veteransnews.org/about)',
+        'Accept': 'text/html,application/xhtml+xml'
+      },
+      signal: AbortSignal.timeout(5000),
+      cf: { cacheTtl: 86400, cacheEverything: true }
+    });
+    if (!res.ok) {
+      await env.ARTICLES_KV.put(cacheKey, '__null__', { expirationTtl: 86400 });
+      return null;
+    }
+    // Read just the first ~64 KB — enough for <head>
+    const reader = res.body.getReader();
+    let html = '';
+    let bytes = 0;
+    const decoder = new TextDecoder();
+    while (bytes < 65536) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      html += decoder.decode(value, { stream: true });
+      if (html.includes('</head>') || html.includes('</HEAD>')) break;
+    }
+    try { await reader.cancel(); } catch {}
+
+    // Find candidates in priority order
+    const candidates = [
+      /<meta\s+property=["']og:image:secure_url["']\s+content=["']([^"']+)["']/i,
+      /<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i,
+      /<meta\s+name=["']twitter:image["']\s+content=["']([^"']+)["']/i,
+      /<meta\s+name=["']twitter:image:src["']\s+content=["']([^"']+)["']/i,
+      /<link\s+rel=["']image_src["']\s+href=["']([^"']+)["']/i,
+      /<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i // reversed attr order
+    ];
+    for (const re of candidates) {
+      const m = html.match(re);
+      if (m && m[1]) {
+        const og = decodeHtmlEntities(m[1]);
+        await env.ARTICLES_KV.put(cacheKey, og, { expirationTtl: 30 * 86400 });
+        return og;
+      }
+    }
+    await env.ARTICLES_KV.put(cacheKey, '__null__', { expirationTtl: 7 * 86400 });
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function hashStr(str) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const buf = await crypto.subtle.digest('SHA-1', data);
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
+
+function decodeHtmlEntities(s) {
+  if (!s) return s;
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x2F;/g, '/');
 }
 
 async function handleStatus(env) {
@@ -976,4 +1320,198 @@ function getDefaultOrganizations() {
       category: 'advocacy'
     }
   ];
+}
+
+// =============================================================================
+// SELF-HEALING: IMAGE BACKFILL + DEAD-LINK SWEEP + HEALTH
+// =============================================================================
+
+/**
+ * Backfill cron — re-attempt image enrichment for articles that came in with
+ * `image: null`. Caps to 60 articles per run to stay under CPU/subrequest budget.
+ * Skips articles older than 30 days (low ROI). Marks `imageBackfillAttempts`
+ * on the article so we stop retrying after 3 misses.
+ */
+async function backfillImages(env) {
+  if (!env?.ARTICLES_KV) return { error: 'no KV' };
+  const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+  if (!data?.articles) return { error: 'no articles' };
+
+  const cutoff = Date.now() - 30 * 86400 * 1000;
+  const candidates = data.articles
+    .map((a, idx) => ({ a, idx }))
+    .filter(({ a }) => {
+      if (a.image && a.image.length > 0) return false;
+      if ((a.imageBackfillAttempts || 0) >= 3) return false;
+      const t = a.publishDate ? new Date(a.publishDate).getTime() : 0;
+      if (t < cutoff) return false;
+      return !!a.sourceUrl;
+    })
+    .slice(0, 60);
+
+  if (candidates.length === 0) {
+    console.log('🖼️  Backfill: no candidates');
+    return { backfilled: 0, attempted: 0 };
+  }
+
+  // Throttle by host: max 3 per host concurrently
+  const byHost = {};
+  for (const c of candidates) {
+    try {
+      const h = new URL(c.a.sourceUrl).hostname;
+      (byHost[h] = byHost[h] || []).push(c);
+    } catch { /* skip malformed */ }
+  }
+
+  let backfilled = 0;
+  let attempted = 0;
+
+  for (const host of Object.keys(byHost)) {
+    const hostCandidates = byHost[host];
+    // Process in batches of 3 per host
+    for (let i = 0; i < hostCandidates.length; i += 3) {
+      const batch = hostCandidates.slice(i, i + 3);
+      const results = await Promise.allSettled(
+        batch.map(({ a }) => fetchOgImage(a.sourceUrl, env))
+      );
+      for (let j = 0; j < batch.length; j++) {
+        attempted++;
+        const { idx } = batch[j];
+        const result = results[j];
+        if (result.status === 'fulfilled' && result.value) {
+          data.articles[idx].image = result.value;
+          data.articles[idx].imageBackfilledAt = new Date().toISOString();
+          // Recompute quality score
+          data.articles[idx].qualityScore = (data.articles[idx].qualityScore || 0) + 25;
+          data.articles[idx].lowQuality = data.articles[idx].qualityScore < 30;
+          backfilled++;
+        } else {
+          data.articles[idx].imageBackfillAttempts = (data.articles[idx].imageBackfillAttempts || 0) + 1;
+          data.articles[idx].lastImageBackfillAt = new Date().toISOString();
+        }
+      }
+      // Polite throttle between batches per host
+      if (i + 3 < hostCandidates.length) await new Promise(r => setTimeout(r, 300));
+    }
+  }
+
+  data.lastImageBackfill = {
+    timestamp: new Date().toISOString(),
+    attempted,
+    backfilled
+  };
+
+  await env.ARTICLES_KV.put('articles', JSON.stringify(data));
+  console.log(`🖼️  Backfill complete: ${backfilled}/${attempted} images recovered`);
+  return { backfilled, attempted };
+}
+
+/**
+ * Dead-link sweep — daily HEAD-check sample of articles to detect broken
+ * source URLs. Marks `linkStatus: 'broken'` to filter out of the feed.
+ */
+async function deadLinkSweep(env) {
+  if (!env?.ARTICLES_KV) return { error: 'no KV' };
+  const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+  if (!data?.articles) return { error: 'no articles' };
+
+  // Sample: 80 articles whose lastLinkCheck is oldest (or never checked)
+  const sorted = [...data.articles]
+    .map((a, idx) => ({ a, idx }))
+    .filter(({ a }) => a.sourceUrl && a.linkStatus !== 'broken')
+    .sort((x, y) => {
+      const xt = x.a.lastLinkCheck ? new Date(x.a.lastLinkCheck).getTime() : 0;
+      const yt = y.a.lastLinkCheck ? new Date(y.a.lastLinkCheck).getTime() : 0;
+      return xt - yt;
+    })
+    .slice(0, 80);
+
+  let broken = 0;
+  let checked = 0;
+
+  // Check 5 at a time
+  for (let i = 0; i < sorted.length; i += 5) {
+    const batch = sorted.slice(i, i + 5);
+    const results = await Promise.allSettled(batch.map(async ({ a }) => {
+      const res = await fetch(a.sourceUrl, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(8000),
+        redirect: 'follow'
+      });
+      return res.status;
+    }));
+    for (let j = 0; j < batch.length; j++) {
+      const { idx } = batch[j];
+      checked++;
+      data.articles[idx].lastLinkCheck = new Date().toISOString();
+      const r = results[j];
+      if (r.status === 'fulfilled') {
+        const code = r.value;
+        if (code === 404 || code === 410 || code === 451) {
+          data.articles[idx].linkStatus = 'broken';
+          data.articles[idx].linkStatusCode = code;
+          broken++;
+        } else {
+          data.articles[idx].linkStatus = 'ok';
+        }
+      } else {
+        // Network errors don't immediately mark broken — could be transient
+        data.articles[idx].linkStatusError = String(r.reason).slice(0, 100);
+      }
+    }
+  }
+
+  data.lastDeadLinkSweep = {
+    timestamp: new Date().toISOString(),
+    checked,
+    broken
+  };
+
+  await env.ARTICLES_KV.put('articles', JSON.stringify(data));
+  console.log(`🔗 Dead-link sweep: ${broken}/${checked} broken`);
+  return { checked, broken };
+}
+
+/**
+ * Source health endpoint — returns per-source health scores for monitoring.
+ */
+async function handleSourceHealth(env) {
+  const sources = NEWS_SOURCES.map(s => s.name);
+  const results = await Promise.all(sources.map(async (name) => {
+    const h = await getSourceHealth(env, name);
+    return {
+      name,
+      score: h?.score ?? 100,
+      consecutiveFailures: h?.consecutiveFailures ?? 0,
+      suspended: h?.suspended ?? false,
+      lastSuccess: h?.lastSuccess ?? null,
+      lastError: h?.lastError ?? null,
+      lastErrorAt: h?.lastErrorAt ?? null,
+      runs: h?.runs ?? 0,
+      totalArticles: h?.totalArticles ?? 0
+    };
+  }));
+
+  // Aggregate: image fill rate from latest scrape
+  const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+  const totalArticles = data?.articles?.length || 0;
+  const articlesWithImages = data?.articles?.filter(a => a.image).length || 0;
+  const imageFillRate = totalArticles ? Math.round((articlesWithImages / totalArticles) * 100) : 0;
+
+  return jsonResponse({
+    overall: {
+      sources: results.length,
+      activeSources: results.filter(r => !r.suspended).length,
+      suspendedSources: results.filter(r => r.suspended).length,
+      averageScore: Math.round(results.reduce((s, r) => s + r.score, 0) / results.length),
+      totalArticles,
+      articlesWithImages,
+      imageFillRate
+    },
+    sources: results,
+    lastScrape: data?.lastScrape ?? null,
+    lastImageBackfill: data?.lastImageBackfill ?? null,
+    lastDeadLinkSweep: data?.lastDeadLinkSweep ?? null,
+    checkedAt: new Date().toISOString()
+  }, 200, { 'Cache-Control': 'public, max-age=60' });
 }

@@ -3,9 +3,9 @@ main = "scraper-worker.js"
 compatibility_date = "2024-01-01"
 workers_dev = true
 
-# Cron trigger - every 6 hours
+# Cron triggers — full scrape every 6h, image backfill every 2h, dead-link sweep daily
 [triggers]
-crons = ["0 */6 * * *"]
+crons = ["0 */6 * * *", "30 */2 * * *", "0 4 * * *"]
 
 # Environment
 [vars]
