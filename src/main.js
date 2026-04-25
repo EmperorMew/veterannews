@@ -136,6 +136,7 @@ async function load() {
     renderBriefing(briefing.length ? briefing : state.articles.slice(0, 4));
     renderEvents(data.events || []);
     renderStories();
+    renderMostRead(state.articles);
     checkAlerts(state.articles);
   } catch (err) {
     console.error('load failed', err);
@@ -143,6 +144,56 @@ async function load() {
     if (el.storyList) el.storyList.innerHTML = '<div class="loading">Unable to load stories.</div>';
   }
 }
+
+// Most Read — top 5 by quality score, prioritizing the past 24 hours
+function renderMostRead(articles) {
+  const mount = document.getElementById('most-read-list');
+  if (!mount || !articles.length) return;
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const recent = articles.filter(a => {
+    const t = a.publishDate ? new Date(a.publishDate).getTime() : 0;
+    return t >= dayAgo;
+  });
+  // Skip briefing IDs (already featured) and prioritize quality
+  const pool = (recent.length >= 5 ? recent : articles)
+    .filter(a => !state.briefingIds.has(a.id))
+    .slice()
+    .sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
+    .slice(0, 5);
+  if (!pool.length) return;
+  mount.innerHTML = pool.map(s => `
+    <li>
+      <a href="/news/${esc(s.slug || s.id)}">${esc(s.title)}</a>
+      <span class="most-read-source">${esc(s.source || 'Veteran News')} · ${formatTime(s.publishDate || s.pubDate)}</span>
+    </li>`).join('');
+}
+
+// Wire the rail newsletter form once
+document.addEventListener('DOMContentLoaded', () => {
+  const railForm = document.getElementById('rail-newsletter');
+  if (!railForm) return;
+  railForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = railForm.querySelector('input[type=email]');
+    const email = input?.value?.trim();
+    if (!email) return;
+    try {
+      const res = await fetch('/api/newsletter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, list: 'daily' })
+      });
+      if (res.ok) {
+        input.value = '';
+        window.VN?.showToast?.('Subscribed. Welcome aboard.');
+      } else {
+        window.VN?.showToast?.('Could not subscribe. Try again.');
+      }
+    } catch {
+      window.VN?.showToast?.('Network error.');
+    }
+  });
+});
 
 async function loadMore() {
   try {

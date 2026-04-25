@@ -15,11 +15,171 @@ document.addEventListener('DOMContentLoaded', () => {
   const ssr = container && container.querySelector('.story-title');
   if (ssr) {
     wireActions();
+    initAudioReader();
     loadRelatedFromDOM();
     return;
   }
   loadStory();
 });
+
+// ─── Audio reader (browser TTS) ────────────────────────────────────────────
+// Critical accessibility for veterans with TBI, visual impairment, or fatigue.
+// Uses native Web Speech API — works offline, no third-party dependency.
+function initAudioReader() {
+  const actions = document.querySelector('.story-actions');
+  if (!actions || !('speechSynthesis' in window)) return;
+
+  // Inject a "Listen" action button if not already present
+  if (actions.querySelector('.listen-btn')) return;
+  const listenBtn = document.createElement('button');
+  listenBtn.className = 'action-btn listen-btn';
+  listenBtn.type = 'button';
+  listenBtn.innerHTML = '🔊 Listen';
+  listenBtn.setAttribute('aria-label', 'Listen to this article');
+  actions.insertBefore(listenBtn, actions.firstChild);
+
+  // Inject the reader bar into the page once
+  let bar = document.getElementById('audio-reader-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'audio-reader-bar';
+    bar.className = 'audio-reader-bar';
+    bar.innerHTML = `
+      <div class="audio-reader-controls">
+        <button class="audio-reader-btn" id="ar-play" aria-label="Play / Pause">▶</button>
+        <button class="audio-reader-btn" id="ar-prev" aria-label="Skip back">⏪</button>
+        <button class="audio-reader-btn" id="ar-next" aria-label="Skip forward">⏩</button>
+        <button class="audio-reader-btn" id="ar-stop" aria-label="Stop">■</button>
+        <select id="ar-speed" class="audio-reader-btn" style="width:auto;padding:0 8px;font-size:0.75rem;border-radius:18px;cursor:pointer;">
+          <option value="0.85">0.85×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.15">1.15×</option>
+          <option value="1.3">1.3×</option>
+          <option value="1.5">1.5×</option>
+          <option value="1.75">1.75×</option>
+        </select>
+      </div>
+      <div class="audio-reader-progress"><div class="audio-reader-fill" id="ar-fill"></div></div>
+      <div class="audio-reader-status" id="ar-status">Ready</div>
+      <button class="audio-reader-btn" id="ar-close" aria-label="Close player" style="background:transparent;color:rgba(255,255,255,0.7);">✕</button>
+    `;
+    document.body.appendChild(bar);
+  }
+
+  const state = {
+    sentences: [],
+    idx: 0,
+    rate: 1,
+    paused: false,
+    utterance: null
+  };
+
+  function extractSentences() {
+    const body = document.querySelector('.story-body');
+    if (!body) return [];
+    const text = body.innerText || body.textContent || '';
+    // Split by sentence terminators while keeping reasonable chunk size
+    const matches = text.match(/[^.!?\n]+[.!?\n]+/g) || [text];
+    return matches.map(s => s.trim()).filter(Boolean);
+  }
+
+  function speak() {
+    if (state.idx >= state.sentences.length) {
+      // Done
+      document.getElementById('ar-fill').style.width = '100%';
+      document.getElementById('ar-status').textContent = 'Done';
+      document.getElementById('ar-play').textContent = '▶';
+      return;
+    }
+    const text = state.sentences[state.idx];
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = state.rate;
+    u.pitch = 1;
+    u.lang = 'en-US';
+    // Prefer a higher-quality voice if available
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => /Google US English|Samantha|Alex|Daniel/.test(v.name)) || voices.find(v => v.lang === 'en-US');
+    if (preferred) u.voice = preferred;
+    u.onend = () => {
+      if (!state.paused) { state.idx++; updateProgress(); speak(); }
+    };
+    u.onerror = () => { document.getElementById('ar-status').textContent = 'Speech error'; };
+    state.utterance = u;
+    window.speechSynthesis.speak(u);
+    document.getElementById('ar-status').textContent = `Playing ${state.idx + 1}/${state.sentences.length}`;
+  }
+
+  function updateProgress() {
+    const pct = state.sentences.length ? (state.idx / state.sentences.length) * 100 : 0;
+    const fill = document.getElementById('ar-fill');
+    if (fill) fill.style.width = pct + '%';
+  }
+
+  function start() {
+    state.sentences = extractSentences();
+    if (!state.sentences.length) {
+      document.getElementById('ar-status').textContent = 'No content to read';
+      return;
+    }
+    state.idx = 0;
+    state.paused = false;
+    bar.classList.add('open');
+    document.getElementById('ar-play').textContent = '❚❚';
+    window.speechSynthesis.cancel();
+    speak();
+  }
+
+  function togglePause() {
+    if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+      window.speechSynthesis.pause();
+      state.paused = true;
+      document.getElementById('ar-play').textContent = '▶';
+      document.getElementById('ar-status').textContent = 'Paused';
+    } else if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+      state.paused = false;
+      document.getElementById('ar-play').textContent = '❚❚';
+      document.getElementById('ar-status').textContent = `Playing ${state.idx + 1}/${state.sentences.length}`;
+    } else {
+      start();
+    }
+  }
+
+  listenBtn.addEventListener('click', start);
+  document.getElementById('ar-play').addEventListener('click', togglePause);
+  document.getElementById('ar-stop').addEventListener('click', () => {
+    window.speechSynthesis.cancel();
+    bar.classList.remove('open');
+    state.idx = 0;
+    document.getElementById('ar-fill').style.width = '0%';
+  });
+  document.getElementById('ar-prev').addEventListener('click', () => {
+    window.speechSynthesis.cancel();
+    state.idx = Math.max(0, state.idx - 1);
+    updateProgress();
+    speak();
+  });
+  document.getElementById('ar-next').addEventListener('click', () => {
+    window.speechSynthesis.cancel();
+    state.idx = Math.min(state.sentences.length - 1, state.idx + 1);
+    updateProgress();
+    speak();
+  });
+  document.getElementById('ar-speed').addEventListener('change', (e) => {
+    state.rate = parseFloat(e.target.value);
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      speak();
+    }
+  });
+  document.getElementById('ar-close').addEventListener('click', () => {
+    window.speechSynthesis.cancel();
+    bar.classList.remove('open');
+  });
+
+  // Stop speech if user navigates away
+  window.addEventListener('beforeunload', () => window.speechSynthesis.cancel());
+}
 
 function setupMobileNav() {
   const menu = $('menu-toggle');
@@ -81,6 +241,7 @@ async function loadStory() {
     if (!article) { showError('Story not found.'); return; }
     renderStory(article);
     updateMeta(article);
+    initAudioReader();
     loadRelated(article);
   } catch (err) {
     console.error(err);

@@ -34,8 +34,8 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
 
-    // Health check
-    if (pathname === '/health' || pathname === '/api/health') {
+    // Health check (API path only — /health alone goes to the Health section page)
+    if (pathname === '/api/health' || pathname === '/api/healthz') {
       return handleHealth(env);
     }
 
@@ -1022,7 +1022,7 @@ async function serveNewsHub(env, request, url) {
     const articleListHtml = articles.map(a => { const slug = a.slug || generateSlug(a.title); const date = a.publishDate ? new Date(a.publishDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; const category = a.category || 'general'; return `<article class="news-item"><a href="/news/${escapeHtml(slug)}" class="news-item-link">${a.image ? `<img src="${escapeHtml(a.image)}" alt="${escapeHtml(a.title)}" class="news-item-image" loading="lazy" />` : ''}<div class="news-item-content"><span class="news-item-category">${escapeHtml(category)}</span><h3 class="news-item-title">${escapeHtml(a.title)}</h3><p class="news-item-excerpt">${escapeHtml(cleanExcerpt(a.excerpt || '').slice(0, 150))}</p><span class="news-item-meta">${escapeHtml(a.source || '')} &middot; ${date}</span></div></a></article>`; }).join('');
     const categories = [...new Set(articles.map(a => a.category || 'general'))];
     const catLinks = categories.map(c => `<a href="/news/category/${escapeHtml(c)}" class="category-link">${escapeHtml(c.charAt(0).toUpperCase() + c.slice(1))}</a>`).join('');
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>News | ${siteName}</title><meta name="description" content="All the latest news from ${siteName}." /><meta property="og:title" content="All News | ${siteName}" /><meta property="og:url" content="https://${domain}/news" /><link rel="canonical" href="https://${domain}/news" /><link rel="icon" type="image/svg+xml" href="/favicon.svg" /><link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+Pro:wght@600;700&display=swap" rel="stylesheet" />${getNewsPageStyles()}</head><body><div id="app"><header class="masthead"><div><a href="/" class="brand">${siteName}</a></div><div style="display:flex;gap:1rem"><a href="/news" class="nav-link nav-active">News</a><a href="/events" class="nav-link">Events</a><a href="/resources" class="nav-link">Resources</a></div></header><main class="main"><h1 class="page-title">All News</h1><nav class="category-nav"><a href="/news" class="category-link category-active">All</a>${catLinks}</nav><div class="news-feed">${articleListHtml || '<p class="empty">No articles yet.</p>'}</div></main><footer class="footer"><p class="footer-tagline">${siteName}</p><nav class="footer-nav"><a href="/news">All News</a><a href="/events">Events</a><a href="/resources">Resources</a></nav><p style="margin-bottom:0.5rem"><a href="https://warriorsfund.org" target="_blank" rel="noopener" style="color:var(--color-accent);font-size:0.875rem;font-weight:500">Veteran Resources | Warriors Fund</a></p><p class="footer-copyright">&copy; 2026 ${siteName} &middot; <a href="https://nexcom.media">Nexcom Media</a></p></footer></div></body></html>`;
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>News | ${siteName}</title><meta name="description" content="All the latest news from ${siteName}." /><meta property="og:title" content="All News | ${siteName}" /><meta property="og:url" content="https://${domain}/news" /><link rel="canonical" href="https://${domain}/news" /><link rel="icon" type="image/svg+xml" href="/favicon.svg" /><link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+Pro:wght@600;700&display=swap" rel="stylesheet" />${getNewsPageStyles()}</head><body><div id="app"><header class="masthead"><div><a href="/" class="brand">${siteName}</a></div><div style="display:flex;gap:1rem"><a href="/news" class="nav-link nav-active">News</a><a href="/events" class="nav-link">Events</a><a href="/resources" class="nav-link">Find Help</a></div></header><main class="main"><h1 class="page-title">All News</h1><nav class="category-nav"><a href="/news" class="category-link category-active">All</a>${catLinks}</nav><div class="news-feed">${articleListHtml || '<p class="empty">No articles yet.</p>'}</div></main><footer class="footer"><p class="footer-tagline">${siteName}</p><nav class="footer-nav"><a href="/news">All News</a><a href="/events">Events</a><a href="/resources">Find Help</a></nav><p style="margin-bottom:0.5rem"><a href="https://warriorsfund.org" target="_blank" rel="noopener" style="color:var(--color-accent);font-size:0.875rem;font-weight:500">Veteran Resources | Warriors Fund</a></p><p class="footer-copyright">&copy; 2026 ${siteName} &middot; <a href="https://nexcom.media">Nexcom Media</a></p></footer></div></body></html>`;
     return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'X-SSR': 'true' } });
   } catch (error) { return new Response('Error', { status: 500 }); }
 }
@@ -1140,6 +1140,28 @@ async function serveHomepage(env, url, request) {
       }).join('');
       html = html.replace(/<div id="events-list" class="event-list">[\s\S]*?<\/div>/,
         `<div id="events-list" class="event-list">${evHtml}</div>`);
+    }
+
+    // Inject Most Read column (top 5 by qualityScore in last 24h)
+    const dayAgo = Date.now() - 24 * 3600 * 1000;
+    const mostReadPool = allArticles
+      .filter(a => !briefingIds.has(a.id))
+      .filter(a => {
+        const t = a.publishDate ? new Date(a.publishDate).getTime() : 0;
+        return t >= dayAgo;
+      });
+    const mostReadList = (mostReadPool.length >= 5 ? mostReadPool : allArticles.filter(a => !briefingIds.has(a.id)))
+      .slice()
+      .sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
+      .slice(0, 5);
+    if (mostReadList.length) {
+      const mrHtml = mostReadList.map(s => `
+        <li>
+          <a href="/news/${escapeHtml(s.slug || generateSlug(s.title))}">${escapeHtml(s.title)}</a>
+          <span class="most-read-source">${escapeHtml(s.source || 'Veteran News')} · ${formatRelTime(s.publishDate || s.pubDate)}</span>
+        </li>`).join('');
+      html = html.replace(/<ol class="most-read-list" id="most-read-list">[\s\S]*?<\/ol>/,
+        `<ol class="most-read-list" id="most-read-list">${mrHtml}</ol>`);
     }
 
     // Inject stats
@@ -1478,7 +1500,19 @@ const SECTION_META = {
       ['File a disability claim', 'https://www.va.gov/disability/how-to-file-claim/'],
       ['GI Bill benefits', 'https://www.va.gov/education/about-gi-bill-benefits/'],
       ['VA home loans', 'https://www.va.gov/housing-assistance/home-loans/'],
-      ['VA pension', 'https://www.va.gov/pension/']
+      ['Disability rates by %', 'https://warriorsfund.org/benefits/disability-rates'],
+      ['PACT Act conditions', 'https://warriorsfund.org/benefits/pact-act'],
+      ['Claim help walkthrough', '/claim-help']
+    ],
+    wfConditions: [
+      { name: 'PTSD', url: 'https://warriorsfund.org/veterans/ptsd' },
+      { name: 'TBI', url: 'https://warriorsfund.org/veterans/tbi' },
+      { name: 'Burn Pit Exposure', url: 'https://warriorsfund.org/veterans/burn-pit' },
+      { name: 'Agent Orange', url: 'https://warriorsfund.org/veterans/agent-orange' },
+      { name: 'Camp Lejeune', url: 'https://warriorsfund.org/veterans/camp-lejeune' },
+      { name: 'Hearing Loss', url: 'https://warriorsfund.org/veterans/hearing-loss' },
+      { name: 'Tinnitus', url: 'https://warriorsfund.org/veterans/tinnitus' },
+      { name: 'Sleep Apnea', url: 'https://warriorsfund.org/veterans/sleep-apnea' }
     ]
   },
   health: {
@@ -1489,7 +1523,22 @@ const SECTION_META = {
       ['VA Mental Health', 'https://www.mentalhealth.va.gov/'],
       ['National Center for PTSD', 'https://www.ptsd.va.gov/'],
       ['Find a Vet Center', 'https://www.va.gov/vet-center/'],
-      ['Women Veterans Health', 'https://www.womenshealth.va.gov/']
+      ['Mental health resources', 'https://warriorsfund.org/resources/type/mental-health'],
+      ['Crisis support hub', '/crisis']
+    ],
+    wfConditions: [
+      { name: 'PTSD', url: 'https://warriorsfund.org/veterans/ptsd' },
+      { name: 'TBI / Traumatic Brain Injury', url: 'https://warriorsfund.org/veterans/tbi' },
+      { name: 'MST', url: 'https://warriorsfund.org/veterans/mst' },
+      { name: 'Depression', url: 'https://warriorsfund.org/veterans/depression' },
+      { name: 'Anxiety', url: 'https://warriorsfund.org/veterans/anxiety' },
+      { name: 'Burn Pit / PACT Act', url: 'https://warriorsfund.org/veterans/burn-pit' },
+      { name: 'Agent Orange', url: 'https://warriorsfund.org/veterans/agent-orange' },
+      { name: 'Gulf War Illness', url: 'https://warriorsfund.org/veterans/gulf-war-illness' },
+      { name: 'Camp Lejeune', url: 'https://warriorsfund.org/veterans/camp-lejeune' },
+      { name: 'Sleep Apnea', url: 'https://warriorsfund.org/veterans/sleep-apnea' },
+      { name: 'Tinnitus', url: 'https://warriorsfund.org/veterans/tinnitus' },
+      { name: 'Hearing Loss', url: 'https://warriorsfund.org/veterans/hearing-loss' }
     ]
   },
   service: {
@@ -1541,9 +1590,11 @@ const SECTION_META = {
     lede: "Spouses, kids, caregivers, survivors — the home front that holds everything together. Programs, benefits, and stories for veteran families.",
     quickLinks: [
       ['VA Caregiver Support', 'https://www.caregiver.va.gov/'],
-      ['Survivor Benefits', 'https://www.benefits.va.gov/persona/dependent-survivor.asp'],
+      ['Caregiver resources', 'https://warriorsfund.org/resources/specialty/caregivers'],
+      ['Survivor Benefits', '/survivor-benefits'],
+      ['Buddy Check guide', '/buddy-check'],
       ['Blue Star Families', 'https://www.bluestarfam.org/'],
-      ['Elizabeth Dole Foundation', 'https://www.elizabethdolefoundation.org/']
+      ['TAPS (1-800-959-8277)', 'tel:18009598277']
     ]
   }
 };
@@ -1625,7 +1676,7 @@ function shellPage({ title, description, canonicalPath, navActive, contentHtml, 
           <a href="/"${isActive('home')}>Briefing</a>
           <a href="/news"${isActive('news')}>News</a>
           <a href="/events"${isActive('events')}>Events</a>
-          <a href="/resources"${isActive('resources')}>Resources</a>
+          <a href="/resources"${isActive('resources')}>Find Help</a>
           <a href="/about"${isActive('about')}>About</a>
         </nav>
         <div class="masthead-actions">
@@ -1642,7 +1693,7 @@ function shellPage({ title, description, canonicalPath, navActive, contentHtml, 
     <a href="/">Briefing</a>
     <a href="/news">News</a>
     <a href="/events">Events</a>
-    <a href="/resources">Resources</a>
+    <a href="/resources">Find Help</a>
     <a href="/topics">Topics</a>
     <a href="/branches">Branches</a>
     <a href="/tools">Tools</a>
@@ -1676,7 +1727,7 @@ function shellPage({ title, description, canonicalPath, navActive, contentHtml, 
           <h4>Connect</h4>
           <ul>
             <li><a href="/events">Events</a></li>
-            <li><a href="/resources">Resources</a></li>
+            <li><a href="/resources">Find Help</a></li>
             <li><a href="/tools">Tools</a></li>
             <li><a href="/newsletter">Newsletter</a></li>
             <li><a href="/about">About</a></li>
@@ -1770,12 +1821,31 @@ async function serveSectionPage(env, url, request, section) {
         <h2>Quick links · ${escapeHtml(meta.title)}</h2>
         <div class="quick-grid">
           ${meta.quickLinks.map(([label, href]) => `
-            <a href="${escapeHtml(href)}" target="_blank" rel="noopener" class="quick-card">
+            <a href="${escapeHtml(href)}"${href.startsWith('/') || href.startsWith('tel:') ? '' : ' target="_blank" rel="noopener"'} class="quick-card">
               <div class="quick-icon">→</div>
               <span class="quick-card-title">${escapeHtml(label)}</span>
             </a>`).join('')}
         </div>
       </div>` : '';
+
+    const wfConditionsHtml = meta.wfConditions?.length ? `
+      <section class="section">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">Conditions &amp; Eligibility</div>
+            <h2 class="section-title">Per-condition guides</h2>
+          </div>
+          <a href="https://warriorsfund.org/resources" target="_blank" rel="noopener" class="section-link">Full directory</a>
+        </div>
+        <p style="color:var(--ink-muted);margin-bottom:var(--s-5);">Each condition has presumptive-eligibility guidance, treatment paths, and claim help — maintained by Warriors Fund.</p>
+        <div class="topics-grid">
+          ${meta.wfConditions.map(c => `
+            <a href="${escapeHtml(c.url)}" target="_blank" rel="noopener" class="topic-tile">
+              <span class="topic-tile-name">${escapeHtml(c.name)}</span>
+              <span class="topic-tile-count">warriorsfund.org →</span>
+            </a>`).join('')}
+        </div>
+      </section>` : '';
 
     const otherSectionsHtml = `
       <section class="section">
@@ -1812,6 +1882,7 @@ async function serveSectionPage(env, url, request, section) {
             <div class="section-head"><div><div class="eyebrow">More in ${escapeHtml(meta.title)}</div><h2 class="section-title">Latest coverage</h2></div></div>
             <ul class="row-list">${restHtml}</ul>
           </section>` : ''}
+        ${wfConditionsHtml}
         ${otherSectionsHtml}
         <div class="crisis-cta">
           <div class="crisis-cta-eyebrow">Veterans Crisis Line</div>
@@ -3853,8 +3924,9 @@ async function serveStatePage(env, url, request, code) {
   const name = STATE_NAMES[code];
   if (!name) return new Response('State not found', { status: 404 });
 
-  // STATES_DATA is populated from agent research; falls back to a generic skeleton
   const data = (typeof STATES_DATA !== 'undefined' && STATES_DATA[code]) || null;
+  const wfStateSlug = name.toLowerCase().replace(/\s+/g, '-');
+  const wfDirectoryUrl = `https://warriorsfund.org/resources/state/${wfStateSlug}`;
 
   const standoutsHtml = data?.standouts?.length ? data.standouts.map(s => `
     <div class="resource-card">
@@ -3862,55 +3934,79 @@ async function serveStatePage(env, url, request, code) {
       <p>${escapeHtml(s.desc || '')}</p>
     </div>`).join('') : '';
 
+  // Latest VetNews coverage tagged with this state
+  let stateNews = [];
+  if (env.DB) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT slug, title, excerpt, category, publish_date, image, source
+        FROM articles
+        WHERE (LOWER(title) LIKE ? OR LOWER(excerpt) LIKE ?)
+          AND link_status != 'broken' AND low_quality = 0
+        ORDER BY publish_date DESC LIMIT 6
+      `).bind(`%${name.toLowerCase()}%`, `%${name.toLowerCase()}%`).all();
+      stateNews = (rs.results || []).map(articleRowToObj);
+    } catch {}
+  }
+  const newsHtml = stateNews.length ? stateNews.map(s => `
+    <a href="/news/${escapeHtml(s.slug)}" class="resource-card">
+      <h3>${escapeHtml((s.title || '').slice(0, 90))}</h3>
+      <p style="font-size:0.8125rem;">${escapeHtml(s.source || '')} · ${formatRelTime(s.publishDate)}</p>
+    </a>`).join('') : '';
+
   const content = `
     <section class="page-hero">
       <div class="container-narrow">
         <a href="/states" class="back-link">← All states</a>
-        <div class="eyebrow">${escapeHtml(code)} · State Resources</div>
+        <div class="eyebrow">${escapeHtml(code)} · ${escapeHtml(name)}</div>
         <h1 class="page-title">${escapeHtml(name)}</h1>
-        ${data?.notes ? `<p class="page-lede">${escapeHtml(data.notes)}</p>` : '<p class="page-lede">Federal VA benefits cover most of what veterans receive — disability compensation, healthcare, GI Bill, home loans. State-specific benefits are layered on top.</p>'}
+        ${data?.notes ? `<p class="page-lede">${escapeHtml(data.notes)}</p>` : '<p class="page-lede">State-specific veteran resources, news, and benefits for ' + escapeHtml(name) + '.</p>'}
       </div>
     </section>
     <div class="container-narrow">
+
+      <!-- LEAD: Warriors Fund directory hand-off (the comprehensive finder) -->
+      <div class="wf-banner" style="margin-top:0;">
+        <div class="wf-shield">WF</div>
+        <div class="wf-text">
+          <h4>Find every veteran resource in ${escapeHtml(name)}</h4>
+          <p>VA hospitals, clinics, vet centers, VSO offices, mental health, housing, employment — maintained by Warriors Fund and updated continuously.</p>
+        </div>
+        <a href="${wfDirectoryUrl}" target="_blank" rel="noopener" class="btn btn-primary">${escapeHtml(name)} Directory →</a>
+      </div>
+
       ${data ? `
         <div class="resource-block">
           <div class="h-eyebrow">State Veterans Department</div>
           <h2>${escapeHtml(data.deptName || (name + ' Department of Veterans Affairs'))}</h2>
           <div class="resource-grid">
-            ${data.deptUrl ? `<a href="${escapeHtml(data.deptUrl)}" target="_blank" rel="noopener" class="resource-card featured"><h3>State Veterans Department</h3><p>${escapeHtml(data.deptName || '')}</p><span class="resource-card-cta">${escapeHtml(data.deptUrl)} →</span></a>` : ''}
-            ${data.phone ? `<a href="tel:${data.phone.replace(/[^0-9]/g, '')}" class="resource-card"><h3>State Hotline</h3><p>${escapeHtml(data.phone)}</p><span class="resource-card-cta">Call →</span></a>` : ''}
+            ${data.deptUrl ? `<a href="${escapeHtml(data.deptUrl)}" target="_blank" rel="noopener" class="resource-card featured"><h3>State Veterans Department</h3><p>${escapeHtml(data.deptName || '')}</p><span class="resource-card-cta">Visit official site →</span></a>` : ''}
+            ${data.phone ? `<a href="tel:${data.phone.replace(/[^0-9]/g, '')}" class="resource-card"><h3>State Hotline</h3><p>${escapeHtml(data.phone)}</p><span class="resource-card-cta">Tap to call →</span></a>` : ''}
+            <a href="${wfDirectoryUrl}" target="_blank" rel="noopener" class="resource-card">
+              <h3>${escapeHtml(name)} Resource Finder</h3>
+              <p>Every VA hospital, clinic, vet center, VSO and program in ${escapeHtml(name)}.</p>
+              <span class="resource-card-cta">Open finder →</span>
+            </a>
           </div>
         </div>
         ${standoutsHtml ? `
           <div class="resource-block">
             <div class="h-eyebrow">Standout State Benefits</div>
             <h2>What's unique to ${escapeHtml(name)}</h2>
+            <p class="resource-block-desc">State benefits layered on top of federal VA coverage. File federal first, then layer state.</p>
             <div class="resource-grid">${standoutsHtml}</div>
           </div>` : ''}
       ` : `
         <div class="warning-box">
-          <p>Detailed state data for <strong>${escapeHtml(name)}</strong> is being added. In the meantime, the federal VA benefits below cover most of what veterans receive — and your state's veterans department is your best lead for state-specific programs.</p>
-          <p style="margin-top:var(--s-3);">A general search: <a href="https://www.google.com/search?q=${escapeHtml(name)}+department+of+veterans+affairs" target="_blank" rel="noopener">${escapeHtml(name)} Department of Veterans Affairs</a></p>
+          <p>State-specific data for <strong>${escapeHtml(name)}</strong> coming soon. In the meantime, the Warriors Fund directory above has every vetted resource in ${escapeHtml(name)} — searchable by what you need.</p>
         </div>`}
 
-      <div class="resource-block">
-        <div class="h-eyebrow">Federal VA (covers all states)</div>
-        <h2>Federal benefits to file first</h2>
-        <div class="resource-grid">
-          <a href="https://www.va.gov/disability/how-to-file-claim/" target="_blank" rel="noopener" class="resource-card">
-            <h3>Disability claim</h3>
-            <p>File via a free VSO. Don't pay anyone.</p>
-          </a>
-          <a href="https://www.va.gov/find-locations/" target="_blank" rel="noopener" class="resource-card">
-            <h3>Find a VA in ${escapeHtml(name)}</h3>
-            <p>Hospitals, clinics, vet centers near you.</p>
-          </a>
-          <a href="/claim-help" class="resource-card">
-            <h3>Claim help walkthrough</h3>
-            <p>Quick 2-minute eligibility check.</p>
-          </a>
-        </div>
-      </div>
+      ${newsHtml ? `
+        <div class="resource-block">
+          <div class="h-eyebrow">${escapeHtml(name)} in the News</div>
+          <h2>Latest coverage mentioning ${escapeHtml(name)}</h2>
+          <div class="resource-grid">${newsHtml}</div>
+        </div>` : ''}
 
       <div class="crisis-cta">
         <div class="crisis-cta-eyebrow">Veterans Crisis Line</div>
@@ -3918,6 +4014,7 @@ async function serveStatePage(env, url, request, code) {
         <div class="crisis-cta-actions">
           <a href="tel:988" class="btn btn-primary">Call 988 — Press 1</a>
           <a href="sms:838255" class="btn btn-secondary">Text 838255</a>
+          <a href="/crisis" class="btn btn-secondary">Full crisis hub →</a>
         </div>
       </div>
     </div>`;
