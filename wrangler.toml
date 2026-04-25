@@ -1,0 +1,33 @@
+name = "veterannews"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+# Custom domain (will be configured once DNS is verified)
+# routes = [
+#   { pattern = "veterannews.org", custom_domain = true },
+#   { pattern = "www.veterannews.org", custom_domain = true }
+# ]
+
+# Environment
+[vars]
+ENVIRONMENT = "production"
+
+# KV namespace for articles storage
+[[kv_namespaces]]
+binding = "ARTICLES_KV"
+id = "8d609fee75f546bc8ebfc83386d82f68"
+
+# Static assets
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+
+# Analytics Engine for pageview tracking
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "nexcom_pageviews"
+
+# Build
+[build]
+command = "npm run build"

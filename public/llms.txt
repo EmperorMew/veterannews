@@ -1,0 +1,86 @@
+# Veteran News
+
+> The trusted daily intelligence briefing for U.S. veterans, service members, and their families. Curated from 14+ credible journalists, advocates, and government sources covering those who served. Published by Warriors Fund.
+
+## What this site is
+
+Veteran News (https://veteransnews.org) is a free, ad-free, editorially-independent news aggregator focused on U.S. veterans. The site is published by Warriors Fund, a 501(c)(3) nonprofit supporting warriors and their families.
+
+Coverage areas: VA benefits, healthcare, transition, advocacy, policy, family, legacy, community, service, and branch-specific news.
+
+## Pages
+
+- [/](https://veteransnews.org/) — Today's briefing (lead story + numbered briefing list + events + feed)
+- [/news](https://veteransnews.org/news) — Full searchable news feed with category filters
+- [/news/{slug}](https://veteransnews.org/news/) — Individual story pages with related articles, share, and source attribution
+- [/events](https://veteransnews.org/events) — Veteran events calendar (virtual and in-person)
+- [/resources](https://veteransnews.org/resources) — Vetted directory: VA programs, hotlines, VSOs, jobs, housing, healthcare
+- [/topics](https://veteransnews.org/topics) — All topics index
+- [/branches](https://veteransnews.org/branches) — Service branch hub
+
+### Section pages
+- [/benefits](https://veteransnews.org/benefits) — Disability claims, GI Bill, pension, home loans
+- [/health](https://veteransnews.org/health) — Mental health, PTSD, MST, women's health, toxic exposure
+- [/service](https://veteransnews.org/service) — Active-duty matters that affect veterans
+- [/transition](https://veteransnews.org/transition) — Out-processing, careers, education
+- [/advocacy](https://veteransnews.org/advocacy) — Capitol Hill, VSO advocacy, policy
+- [/legacy](https://veteransnews.org/legacy) — Military culture, history, memorialization
+- [/community](https://veteransnews.org/community) — Veterans helping veterans
+- [/family](https://veteransnews.org/family) — Spouses, kids, caregivers, survivors
+
+### Branch pages
+- [/branch/army](https://veteransnews.org/branch/army)
+- [/branch/navy](https://veteransnews.org/branch/navy)
+- [/branch/air-force](https://veteransnews.org/branch/air-force)
+- [/branch/marines](https://veteransnews.org/branch/marines)
+- [/branch/coast-guard](https://veteransnews.org/branch/coast-guard)
+- [/branch/space-force](https://veteransnews.org/branch/space-force)
+
+### Tools & utilities
+- [/tools](https://veteransnews.org/tools) — VA disability, GI Bill BAH, and CRDP calculators
+- [/newsletter](https://veteransnews.org/newsletter) — Email subscriptions (daily, weekly, benefits, breaking)
+- [/saved](https://veteransnews.org/saved) — Local bookmarks
+- [/about](https://veteransnews.org/about) — Mission, editorial standards, Warriors Fund context
+- [/donate](https://veteransnews.org/donate) — Support the mission
+
+### Editorial / legal
+- [/editorial-standards](https://veteransnews.org/editorial-standards)
+- [/corrections](https://veteransnews.org/corrections)
+- [/press](https://veteransnews.org/press)
+- [/contact](https://veteransnews.org/contact)
+- [/privacy](https://veteransnews.org/privacy)
+- [/terms](https://veteransnews.org/terms)
+
+## Public APIs
+
+All endpoints return JSON. CORS enabled. No authentication required.
+
+- [/api/intelligence](https://veteransnews.org/api/intelligence) — Articles + briefing + events. Supports `?limit`, `?offset`, `?category`, `?q`, `?fields=list`
+- [/api/articles](https://veteransnews.org/api/articles) — Alias
+- [/api/search?q=](https://veteransnews.org/api/search) — Keyword search
+- [/api/events](https://veteransnews.org/api/events) — Events feed
+- [/api/events/upcoming](https://veteransnews.org/api/events/upcoming) — Top 10 upcoming
+- [/api/sources](https://veteransnews.org/api/sources) — Source directory + counts
+- [/api/health](https://veteransnews.org/api/health) — Liveness check
+- [/api/newsletter](https://veteransnews.org/api/newsletter) (POST `{email, list}`) — Subscribe
+
+## Discovery / SEO
+
+- [/sitemap.xml](https://veteransnews.org/sitemap.xml) — Sitemap index
+- [/sitemap-pages.xml](https://veteransnews.org/sitemap-pages.xml) — Static pages
+- [/sitemap-articles.xml](https://veteransnews.org/sitemap-articles.xml) — All articles
+- [/sitemap-news.xml](https://veteransnews.org/sitemap-news.xml) — Google News (last 48hr)
+- [/rss.xml](https://veteransnews.org/rss.xml) — RSS feed
+- [/llms.txt](https://veteransnews.org/llms.txt) — This file
+
+## Categories
+
+benefits · health · service · transition · legacy · community · advocacy · family
+
+## Crisis support
+
+Highest-priority resource on every page: tel:988 (press 1) or text 838255.
+
+## Editorial principles
+
+Sources are always named. Original articles are linked. No paywalls. No ads. Independence funded by Warriors Fund and reader donations. See /editorial-standards.

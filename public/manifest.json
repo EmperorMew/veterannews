@@ -1,0 +1,22 @@
+{
+  "name": "Veteran News",
+  "short_name": "VetNews",
+  "description": "Ground truth for those who served. The trusted daily intelligence briefing for U.S. veterans. A Warriors Fund initiative.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FBFAF7",
+  "theme_color": "#0D2340",
+  "categories": ["news", "government", "social"],
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/favicon-32.png", "sizes": "32x32", "type": "image/png" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ],
+  "shortcuts": [
+    { "name": "Today's Briefing", "url": "/", "description": "Today's top veteran news" },
+    { "name": "All News", "url": "/news", "description": "Browse the full news feed" },
+    { "name": "Events", "url": "/events", "description": "Upcoming veteran events" },
+    { "name": "Resources", "url": "/resources", "description": "VA, VSO, and crisis support directory" }
+  ]
+}

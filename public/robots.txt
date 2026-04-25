@@ -1,0 +1,23 @@
+# Veteran News — Ground truth for those who served.
+# A Warriors Fund Initiative · https://veteransnews.org
+
+User-agent: *
+Allow: /
+Crawl-delay: 1
+
+# Google News crawler
+User-agent: Googlebot-News
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+# Sitemaps (split for scale)
+Sitemap: https://veteransnews.org/sitemap.xml
+Sitemap: https://veteransnews.org/sitemap-news.xml
+Sitemap: https://veteransnews.org/sitemap-articles.xml
+Sitemap: https://veteransnews.org/sitemap-pages.xml
+
+# AI & LLM discovery
+# Structured JSON APIs available for AI consumption.
+# See /llms.txt for full documentation.

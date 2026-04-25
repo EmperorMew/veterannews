@@ -1,0 +1,17 @@
+name = "veterannews-scraper"
+main = "scraper-worker.js"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+# Cron trigger - every 6 hours
+[triggers]
+crons = ["0 */6 * * *"]
+
+# Environment
+[vars]
+ENVIRONMENT = "production"
+
+# KV namespace (same as main worker)
+[[kv_namespaces]]
+binding = "ARTICLES_KV"
+id = "8d609fee75f546bc8ebfc83386d82f68"
