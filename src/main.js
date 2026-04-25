@@ -48,9 +48,37 @@ async function init() {
   setupNewsletter();
   setupFeedMode();
   trackReadingStreak();
+  renderContinueReading();
   await load();
   setInterval(load, 5 * 60 * 1000);
   setInterval(setDateline, 60 * 1000);
+}
+
+// ─── Continue Reading card ────────────────────────────────────────────────
+function renderContinueReading() {
+  const mount = document.getElementById('continue-reading-mount');
+  if (!mount) return;
+  let item;
+  try { item = JSON.parse(localStorage.getItem('vn:continue:v1') || 'null'); } catch {}
+  if (!item || !item.slug || item.progress < 10 || item.progress > 90) return;
+  // Skip if older than 7 days
+  const ageDays = (Date.now() - new Date(item.updatedAt || 0).getTime()) / 86400000;
+  if (ageDays > 7) { localStorage.removeItem('vn:continue:v1'); return; }
+
+  const cat = (item.category || 'news').toUpperCase();
+  mount.innerHTML = `
+    <a href="/news/${esc(item.slug)}" class="continue-card">
+      ${item.image ? `<img src="${esc(item.image)}" alt="" class="continue-card-img" loading="lazy" onerror="this.style.display='none'">` : ''}
+      <div class="continue-card-body">
+        <span class="continue-card-eyebrow">↩ Continue reading · ${esc(cat)}</span>
+        <h3>${esc(item.title)}</h3>
+        <div class="continue-card-progress">
+          <div class="continue-card-progress-bar" style="width:${item.progress}%;"></div>
+        </div>
+        <span class="continue-card-meta">${item.progress}% · ${esc(item.source || 'Veteran News')}</span>
+      </div>
+      <button class="continue-card-dismiss" aria-label="Dismiss" onclick="event.preventDefault();event.stopPropagation();localStorage.removeItem('vn:continue:v1');this.closest('.continue-card').remove();">✕</button>
+    </a>`;
 }
 
 // ─── Reading streak ────────────────────────────────────────────────────────

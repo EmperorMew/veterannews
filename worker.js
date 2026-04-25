@@ -58,6 +58,22 @@ export default {
     if (pathname === '/rss.xml' || pathname === '/feed' || pathname === '/feed.xml') {
       return handleRSS(env, url);
     }
+    if (pathname === '/feed.json') {
+      return handleJsonFeed(env);
+    }
+    // Daily Brief permalink — citable archive of any past day's briefing
+    const briefMatch = pathname.match(/^\/briefing\/(\d{4})\/(\d{2})\/(\d{2})\/?$/);
+    if (briefMatch) {
+      return serveDailyBrief(env, url, request, briefMatch[1], briefMatch[2], briefMatch[3]);
+    }
+    // Today's brief — convenience route
+    if (pathname === '/briefing/today' || pathname === '/briefing') {
+      const t = new Date();
+      const y = t.getUTCFullYear();
+      const m = String(t.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(t.getUTCDate()).padStart(2, '0');
+      return Response.redirect(`https://${CONFIG.domain}/briefing/${y}/${m}/${d}`, 302);
+    }
 
     // Track pageviews for content pages (non-blocking)
     const isContentPage = pathname === '/' || pathname === '/events' || pathname === '/resources' || pathname === '/story' || pathname === '/about' || pathname === '/donate' || pathname === '/news' || pathname.startsWith('/news/');
@@ -980,6 +996,7 @@ function injectArticleData(template, article) {
       </div>
       ${article.image ? `<figure class="story-hero"><img src="${escapeHtml(article.image)}" alt="${escapeHtml(article.title || '')}" onerror="this.parentElement.outerHTML='<figure class=\\'story-hero\\'>${placeholderHtml(article, 'hero').replace(/'/g, '\\\'')}</figure>';this.onerror=null"></figure>` : `<figure class="story-hero">${placeholderHtml(article, 'hero')}</figure>`}
       ${article.excerpt && article.excerpt.length > 60 ? `<aside class="tldr" aria-label="Quick summary"><div class="tldr-eyebrow">Quick read</div><p>${escapeHtml(article.excerpt.slice(0, 320))}</p></aside>` : ''}
+      ${needsCrisisIntercept(article) ? crisisInterceptHtml() : ''}
       <div class="story-body">
         ${formatArticleContent(article.content || article.excerpt || 'No content available.')}
       </div>
@@ -2611,6 +2628,32 @@ async function servePressPage(env, url, request) {
 // Replaces the gray "letter on box" weak fallback.
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Source avatar — initials in a brand-tinted circle. Politico-style.
+ * Used on cards as a visual trust signal next to the byline.
+ */
+function sourceAvatar(source) {
+  if (!source) return '';
+  const s = source.toLowerCase();
+  let cls = 'src-default';
+  if (/military times|sightline/.test(s)) cls = 'src-mt';
+  else if (/task.*purpose/.test(s)) cls = 'src-tp';
+  else if (/war horse/.test(s)) cls = 'src-th';
+  else if (/^va news|^va\b|department of veterans/.test(s)) cls = 'src-va';
+  else if (/we are the mighty/.test(s)) cls = 'src-wm';
+  else if (/^military\.com/.test(s)) cls = 'src-mc';
+  else if (/^dav\b|disabled american/.test(s)) cls = 'src-dav';
+  else if (/^vfw\b|veterans of foreign/.test(s)) cls = 'src-vfw';
+  else if (/american legion/.test(s)) cls = 'src-legion';
+  // Initials: take first letter of each significant word, max 2
+  const initials = (source || '').replace(/^The /i, '')
+    .split(/\s+/).filter(w => w.length > 1)
+    .slice(0, 2)
+    .map(w => w[0])
+    .join('').toUpperCase() || '?';
+  return `<span class="source-avatar ${cls}" aria-hidden="true">${escapeHtml(initials)}</span>`;
+}
+
 function placeholderHtml(article, variant = 'card') {
   const cat = (article.category || 'news').toLowerCase();
   const catLabel = cat.charAt(0).toUpperCase() + cat.slice(1);
@@ -4101,3 +4144,204 @@ const STATES_DATA = {
   WY: { name: 'Wyoming', deptName: 'Wyoming Veterans Commission', deptUrl: 'https://www.wyomilitary.wyo.gov/veterans', phone: '800-833-5987', standouts: [{ name: 'Veterans Property Tax Exemption', desc: '$3,000 (assessed value) property tax exemption on primary residence (or vehicle license fees) for honorably discharged wartime vets and disabled vets' }, { name: 'No state income tax', desc: 'Wyoming has no state income tax — military retirement and VA benefits all untaxed' }, { name: 'Free hunting/fishing licenses for disabled vets', desc: 'Free Wyoming hunting and fishing licenses for resident veterans rated 50%+ service-connected disabled' }], notes: 'Smallest population of any state but well-resourced per-capita.' },
   DC: { name: 'District of Columbia', deptName: 'DC Mayor\'s Office of Veterans Affairs', deptUrl: 'https://communityaffairs.dc.gov/mova', phone: '202-724-5454', standouts: [{ name: 'VetsRide Program', desc: 'Free, on-demand shared-ride transportation for DC veterans for medical, employment, and housing trips' }, { name: 'DC Veteran Hiring Preference', desc: 'Hiring preference for DC government jobs for veterans and certain spouses' }, { name: 'District Veteran Service Officers', desc: 'MOVA District VSOs provide free claims assistance for federal VA benefits' }], notes: 'DC is unique in not having state-level property/income tax breaks comparable to states.' }
 };
+
+// ════════════════════════════════════════════════════════════════════════════
+// CRISIS CONTENT INTERCEPT — surfaced inline on stories about suicide,
+// PTSD, MST, etc. This is research-backed: contextual surfacing beats
+// always-on FAB blindness.
+// ════════════════════════════════════════════════════════════════════════════
+const CRISIS_KEYWORDS = [
+  'suicide', 'suicidal', 'self-harm', 'self harm', 'self-injur',
+  'overdose', 'crisis line', 'crisis hotline', '988',
+  'sexual assault', 'sexual trauma', 'mst ', 'military sexual trauma',
+  'depression', 'anxiety disorder', 'ptsd', 'post-traumatic stress',
+  'tbi', 'traumatic brain', 'addiction', 'substance use', 'opioid'
+];
+function needsCrisisIntercept(article) {
+  if (!article) return false;
+  const hay = `${article.title || ''} ${article.excerpt || ''} ${article.category || ''}`.toLowerCase();
+  return CRISIS_KEYWORDS.some(k => hay.includes(k));
+}
+function crisisInterceptHtml() {
+  return `
+    <aside class="crisis-intercept" role="complementary" aria-label="Crisis support">
+      <div class="crisis-intercept-eyebrow">If this is hitting close to home</div>
+      <h3>You don't have to read this alone.</h3>
+      <p>Free, confidential support is available right now. Call 988 and press 1, text 838255, or chat online. Calling will not affect your clearance, benefits, job, or firearms.</p>
+      <div class="crisis-intercept-actions">
+        <a href="tel:988" class="btn btn-primary">Call 988 — Press 1</a>
+        <a href="sms:838255" class="btn btn-secondary">Text 838255</a>
+        <a href="/crisis" class="btn btn-secondary">Full support hub →</a>
+      </div>
+    </aside>`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// DAILY BRIEF PERMALINK — /briefing/YYYY-MM-DD
+// Citable archive of any past day's curated picks. Strong Google News
+// "PublicationIssue" signal.
+// ════════════════════════════════════════════════════════════════════════════
+async function serveDailyBrief(env, url, request, year, month, day) {
+  const dateStr = `${year}-${month}-${day}`;
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  let articles = [];
+  if (env.DB) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT id, slug, title, excerpt, category, author, publish_date, image,
+               source, source_slug, source_url, service_branch, quality_score
+        FROM articles
+        WHERE substr(publish_date, 1, 10) = ? AND link_status != 'broken' AND low_quality = 0
+        ORDER BY quality_score DESC, publish_date DESC LIMIT 12
+      `).bind(dateStr).all();
+      articles = (rs.results || []).map(articleRowToObj);
+    } catch {}
+  }
+  if (!articles.length) {
+    return new Response(shellPage({
+      title: `Daily Brief: ${dateStr} — Veteran News`,
+      description: `No archived briefing for ${dateStr}.`,
+      canonicalPath: `/briefing/${year}/${month}/${day}`,
+      navActive: '',
+      contentHtml: `<div class="container"><div class="loading" style="padding:var(--s-9);text-align:center;">No briefing archived for ${dateStr}. <a href="/archive">Browse the archive</a>.</div></div>`,
+      extraHead: '<meta name="robots" content="noindex">'
+    }), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const dateLabel = `${monthNames[parseInt(month, 10)] || month} ${parseInt(day, 10)}, ${year}`;
+  const lead = articles[0];
+  const rest = articles.slice(1);
+
+  const issueLd = {
+    '@context': 'https://schema.org',
+    '@type': 'PublicationIssue',
+    issueNumber: dateStr,
+    datePublished: dateStr,
+    name: `Veteran News Daily Brief: ${dateLabel}`,
+    isPartOf: { '@id': `${baseUrl}/#website` },
+    inLanguage: 'en-US',
+    hasPart: articles.slice(0, 10).map(a => ({
+      '@type': 'NewsArticle',
+      headline: a.title,
+      url: `${baseUrl}/news/${a.slug}`,
+      datePublished: a.publishDate,
+      author: { '@type': 'Organization', name: a.source }
+    }))
+  };
+
+  const briefingHtml = rest.map((s, i) => `
+    <li class="briefing-item">
+      <a href="/news/${escapeHtml(s.slug)}" style="display:block;">
+        <span class="tag">${escapeHtml(formatCat(s.category))}</span>
+        <h3>${escapeHtml(s.title)}</h3>
+        <div class="byline">
+          <span class="byline-source">${escapeHtml(s.source || 'Veteran News')}</span>
+        </div>
+      </a>
+    </li>`).join('');
+
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <a href="/archive/${year}/${month}" class="back-link">← ${monthNames[parseInt(month, 10)]} ${year}</a>
+        <div class="eyebrow">Daily Brief · Issue ${escapeHtml(dateStr)}</div>
+        <h1 class="page-title">${escapeHtml(dateLabel)}</h1>
+        <p class="page-lede">${articles.length} curated stories — the briefing as it ran on ${dateLabel}.</p>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <div class="briefing-grid">
+          <a href="/news/${escapeHtml(lead.slug)}" class="lead-story">
+            ${img(lead, 'lead', 'eager')}
+            <div class="lead-story-body">
+              <span class="tag">${escapeHtml(formatCat(lead.category))}</span>
+              <h2>${escapeHtml(lead.title)}</h2>
+              ${lead.excerpt ? `<p>${escapeHtml(truncateText(lead.excerpt, 220))}</p>` : ''}
+              <div class="byline">
+                <span class="byline-source">${escapeHtml(lead.source || 'Veteran News')}</span>
+              </div>
+            </div>
+          </a>
+          <ol class="briefing-list">${briefingHtml}</ol>
+        </div>
+      </section>
+    </div>`;
+
+  return new Response(shellPage({
+    title: `Daily Brief: ${dateLabel} — Veteran News`,
+    description: `${articles.length} curated stories from the Veteran News briefing on ${dateLabel}.`,
+    canonicalPath: `/briefing/${year}/${month}/${day}`,
+    navActive: 'home',
+    contentHtml: content,
+    extraHead: `<script type="application/ld+json">${JSON.stringify(issueLd)}</script>`
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'Last-Modified': new Date(`${dateStr}T23:59:59Z`).toUTCString()
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// JSON Feed (https://www.jsonfeed.org/) — modern syndication alongside RSS
+// ════════════════════════════════════════════════════════════════════════════
+async function handleJsonFeed(env) {
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  let articles = [];
+  if (env.DB) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT id, slug, title, excerpt, category, author, publish_date, image,
+               source, source_url
+        FROM articles WHERE link_status != 'broken' AND low_quality = 0
+        ORDER BY publish_date DESC LIMIT 50
+      `).all();
+      articles = (rs.results || []).map(articleRowToObj);
+    } catch {}
+  }
+  if (!articles.length) {
+    try {
+      const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+      articles = deduplicateArticles(data?.articles || []).slice(0, 50);
+    } catch {}
+  }
+
+  const feed = {
+    version: 'https://jsonfeed.org/version/1.1',
+    title: 'Veteran News',
+    home_page_url: baseUrl,
+    feed_url: `${baseUrl}/feed.json`,
+    description: 'The trusted daily intelligence briefing for U.S. veterans. A Warriors Fund initiative.',
+    icon: `${baseUrl}/og-image.png`,
+    favicon: `${baseUrl}/favicon.svg`,
+    language: 'en-US',
+    authors: [{ name: 'Veteran News', url: baseUrl }],
+    items: articles.map(a => ({
+      id: `${baseUrl}/news/${a.slug || generateSlug(a.title)}`,
+      url: `${baseUrl}/news/${a.slug || generateSlug(a.title)}`,
+      title: a.title,
+      summary: cleanExcerpt(a.excerpt || '').slice(0, 500),
+      content_text: cleanExcerpt(a.excerpt || ''),
+      image: a.image || undefined,
+      banner_image: a.image || undefined,
+      date_published: a.publishDate || a.publish_date,
+      tags: a.category ? [a.category] : [],
+      authors: [{ name: a.source || 'Veteran News' }],
+      external_url: a.sourceUrl || a.source_url || undefined
+    }))
+  };
+
+  return new Response(JSON.stringify(feed, null, 2), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/feed+json; charset=utf-8',
+      'Cache-Control': 'public, max-age=900',
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
+}

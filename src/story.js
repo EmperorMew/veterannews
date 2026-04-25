@@ -317,6 +317,7 @@ function setupMobileNav() {
 
 function setupReadProgress() {
   if (!readProgress) return;
+  let lastPct = 0;
   const update = () => {
     const article = container;
     if (!article) return;
@@ -325,10 +326,46 @@ function setupReadProgress() {
     const scrolled = Math.max(0, -rect.top);
     const pct = total > 0 ? Math.min(100, (scrolled / total) * 100) : 0;
     readProgress.style.width = pct + '%';
+    lastPct = pct;
   };
   window.addEventListener('scroll', update, { passive: true });
   window.addEventListener('resize', update);
   update();
+
+  // Save reading progress to localStorage every few seconds (Continue Reading)
+  const saveProgress = () => {
+    if (lastPct < 5) return; // Skip if barely scrolled
+    if (lastPct > 95) {
+      // Mark as finished — clear from continue list
+      try {
+        const cur = JSON.parse(localStorage.getItem('vn:continue:v1') || '{}');
+        if (cur.slug === slugFromPath()) {
+          localStorage.removeItem('vn:continue:v1');
+        }
+      } catch {}
+      return;
+    }
+    const titleEl = document.querySelector('.story-title');
+    const tagEl = document.querySelector('.story-tag');
+    const data = {
+      slug: slugFromPath(),
+      title: titleEl?.textContent || document.title,
+      source: document.querySelector('.story-byline strong')?.textContent || '',
+      category: tagEl?.textContent?.toLowerCase() || '',
+      image: document.querySelector('.story-hero img')?.src || null,
+      progress: Math.round(lastPct),
+      updatedAt: new Date().toISOString()
+    };
+    try { localStorage.setItem('vn:continue:v1', JSON.stringify(data)); } catch {}
+  };
+  setInterval(saveProgress, 5000);
+  window.addEventListener('beforeunload', saveProgress);
+  // Also save on visibility change (mobile browsers)
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveProgress(); });
+}
+
+function slugFromPath() {
+  return location.pathname.replace(/^\/news\//, '').replace(/\/$/, '');
 }
 
 async function loadStory() {
