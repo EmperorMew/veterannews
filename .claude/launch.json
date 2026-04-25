@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wrangler",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--port", "8787", "--remote"],
+      "port": 8787
+    },
+    {
+      "name": "static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["http-server", "dist", "-p", "8080", "-c-1", "--cors"],
+      "port": 8080
+    }
+  ]
+}

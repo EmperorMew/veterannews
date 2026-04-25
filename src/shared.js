@@ -562,7 +562,7 @@ function escAttr(s) {
 }
 
 // Expose helpers for page scripts
-window.VN = {
+window.VN = Object.assign(window.VN || {}, {
   toggleSaved, isSaved, getSaved, setSaved,
   openSearch, closeSearch, showToast
-};
+});
