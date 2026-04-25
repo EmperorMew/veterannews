@@ -28,6 +28,37 @@ Coverage areas: VA benefits, healthcare, transition, advocacy, policy, family, l
 - [/community](https://veteransnews.org/community) — Veterans helping veterans
 - [/family](https://veteransnews.org/family) — Spouses, kids, caregivers, survivors
 
+### Pillar guides (evergreen, deep)
+- [/pact-act](https://veteransnews.org/pact-act) — PACT Act explained: presumptive conditions, eligibility, how to file
+- [/va-disability](https://veteransnews.org/va-disability) — VA disability ratings, the C&P exam, combined-rating math, 2025 rates
+- [/gi-bill](https://veteransnews.org/gi-bill) — Post-9/11 vs. Montgomery, transferring to family, schools to avoid
+- [/mental-health](https://veteransnews.org/mental-health) — PTSD/MST/depression: Vet Centers, CPT/PE/EMDR, OTH eligibility, free non-VA options
+- [/homeless-veterans](https://veteransnews.org/homeless-veterans) — HUD-VASH, SSVF, GPD, the 24/7 1-877-4AID-VET line
+- [/caregivers](https://veteransnews.org/caregivers) — PCAFC stipend, PGCSS, Veteran-Directed Care
+- [/transition-guide](https://veteransnews.org/transition-guide) — 9-step playbook for separating servicemembers, BDD, SkillBridge, GI Bill transfer
+- [/discharge-upgrade](https://veteransnews.org/discharge-upgrade) — DRB vs. BCMR, Hagel/Kurta/Wilkie memos, free legal help
+- [/tbi](https://veteransnews.org/tbi) — TBI severity, polytrauma care, blast exposure, PTSD overlap
+- [/women-veterans](https://veteransnews.org/women-veterans) — Women's VA care, MST for life, the 1-855-VA-WOMEN line, underclaimed disabilities
+- [/va-appeals](https://veteransnews.org/va-appeals) — Appeal a VA decision: HLR, Supplemental Claim, Board Appeal, the 1-year deadline
+- [/va-home-loan](https://veteransnews.org/va-home-loan) — $0 down, no PMI, COE, IRRRL refinance, funding fee waivers
+- [/va-healthcare](https://veteransnews.org/va-healthcare) — Eligibility, 8 priority groups, Community Care, the 5-year combat window
+- [/veteran-jobs](https://veteransnews.org/veteran-jobs) — Federal vet preference, VR&E, USERRA, MOS translation, vetted job boards
+- [/military-spouses](https://veteransnews.org/military-spouses) — MyCAA, MSEP, USAJOBS spouse preference, free Vet Center counseling, CHAMPVA
+- [/va-pension](https://veteransnews.org/va-pension) — VA Pension + Aid & Attendance for wartime vets 65+ or disabled, plus pension-poaching warnings
+- [/military-discounts](https://veteransnews.org/military-discounts) — Verified veteran/military discounts by category
+- [/tricare](https://veteransnews.org/tricare) — TRICARE plans, transitions, mental health coverage, denials/appeals
+- [/military-funeral-honors](https://veteransnews.org/military-funeral-honors) — Free national cemetery burial, military funeral honors, headstones, burial allowances
+- [/military-id](https://veteransnews.org/military-id) — VHIC, VIC, state driver's license veteran designation, REAL ID, replacement DD-214
+- [/veteran-tax-benefits](https://veteransnews.org/veteran-tax-benefits) — VA disability tax-free, state retirement exemptions, CRSC/CRDP, free filing options
+- [/military-retirement-pay](https://veteransnews.org/military-retirement-pay) — Retirement systems (Final Pay, High-3, BRS), medical retirement, SBP, TSP, CRSC/CRDP
+- [/tdiu](https://veteransnews.org/tdiu) — Total Disability based on Individual Unemployability — 100% pay rate when service-connected disabilities prevent work
+- [/guides](https://veteransnews.org/guides) — Full index of all evergreen veteran guides organized by category
+- [/survivor-benefits](https://veteransnews.org/survivor-benefits) — DIC, CHAMPVA, Fry Scholarship, TAPS
+- [/buddy-check](https://veteransnews.org/buddy-check) — 5-minute reach-out guide for worried friends and family
+- [/scam-alerts](https://veteransnews.org/scam-alerts) — 12 frauds targeting veterans
+- [/claim-help](https://veteransnews.org/claim-help) — 2-minute walkthrough for VA benefit eligibility
+- [/crisis](https://veteransnews.org/crisis) — 988 Veterans Crisis Line + alternative paths
+
 ### Branch pages
 - [/branch/army](https://veteransnews.org/branch/army)
 - [/branch/navy](https://veteransnews.org/branch/navy)

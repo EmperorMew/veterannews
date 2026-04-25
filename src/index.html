@@ -160,15 +160,14 @@
   <nav class="section-anchor-strip" aria-label="Sections">
     <div class="container">
       <div class="section-anchor-strip-inner">
-        <a href="/benefits">Benefits</a>
-        <a href="/health">Health</a>
-        <a href="/service">Service</a>
-        <a href="/transition">Transition</a>
-        <a href="/advocacy">Advocacy</a>
-        <a href="/legacy">Legacy</a>
-        <a href="/community">Community</a>
-        <a href="/family">Family</a>
-        <a href="/branches">Branches</a>
+        <a href="/pact-act">PACT Act</a>
+        <a href="/va-disability">Disability</a>
+        <a href="/va-healthcare">Healthcare</a>
+        <a href="/gi-bill">GI Bill</a>
+        <a href="/va-home-loan">Home Loan</a>
+        <a href="/mental-health">Mental Health</a>
+        <a href="/veteran-jobs">Jobs</a>
+        <a href="/homeless-veterans">Housing</a>
         <a href="/states">By State</a>
         <a href="/tools">Tools</a>
         <a href="/crisis" style="color:var(--crisis);">Crisis 988</a>
@@ -204,7 +203,7 @@
         <p class="kicker">Curated daily from the most credible journalists, advocates, and government sources covering those who served. Cut through the noise. Get what matters.</p>
         <div class="hero-stats">
           <div class="stat-card">
-            <div class="stat-num" id="stat-stories">—</div>
+            <div class="stat-num" id="stat-stories" aria-busy="true">—</div>
             <div class="stat-label">Stories tracked</div>
           </div>
           <div class="stat-card">
@@ -212,7 +211,7 @@
             <div class="stat-label">Trusted sources</div>
           </div>
           <div class="stat-card">
-            <div class="stat-num" id="stat-events">—</div>
+            <div class="stat-num" id="stat-events" aria-busy="true">—</div>
             <div class="stat-label">Upcoming events</div>
           </div>
           <div class="stat-card">
@@ -254,6 +253,86 @@
 
       <!-- Alert Banner (conditional) -->
       <div id="alert-banner" hidden></div>
+
+      <!-- Veteran Essentials — pillar pages -->
+      <section class="essentials" aria-labelledby="essentials-title">
+        <div class="essentials-head">
+          <h2 id="essentials-title">Veteran Essentials</h2>
+          <p>Plain-English guides to the benefits, risks, and resources every veteran and family should know about. <a href="/guides">Browse all 28 guides →</a></p>
+        </div>
+        <div class="essentials-grid">
+          <a href="/pact-act" class="essentials-card">
+            <span class="essentials-tag">Benefits Law</span>
+            <h3>The PACT Act</h3>
+            <p>Largest expansion of VA benefits in 50 years. Burn pits, Agent Orange, radiation exposure — every covered condition explained.</p>
+          </a>
+          <a href="/va-disability" class="essentials-card">
+            <span class="essentials-tag">Disability Ratings</span>
+            <h3>VA disability, decoded</h3>
+            <p>How ratings actually work, the 2025 rate table, the C&amp;P exam, and how to file without paying a "claim shark."</p>
+          </a>
+          <a href="/gi-bill" class="essentials-card">
+            <span class="essentials-tag">Education</span>
+            <h3>The GI Bill, in plain English</h3>
+            <p>Post-9/11 vs. Montgomery, what it covers beyond a 4-year degree, how to transfer to family, schools to avoid.</p>
+          </a>
+          <a href="/va-home-loan" class="essentials-card">
+            <span class="essentials-tag">Home Loan</span>
+            <h3>$0 down, no PMI</h3>
+            <p>The VA home loan in plain English. COE, IRRRL refinance, funding fee waivers, and the myths that scare lenders away.</p>
+          </a>
+          <a href="/va-healthcare" class="essentials-card">
+            <span class="essentials-tag">Healthcare</span>
+            <h3>Enroll in VA healthcare</h3>
+            <p>Eligibility, the 8 priority groups, Community Care, and the 5-year combat window most vets miss.</p>
+          </a>
+          <a href="/veteran-jobs" class="essentials-card">
+            <span class="essentials-tag">Jobs</span>
+            <h3>Veteran employment</h3>
+            <p>Federal vet preference, VR&amp;E, USERRA reemployment rights, MOS translation, and vetted job boards.</p>
+          </a>
+          <a href="/mental-health" class="essentials-card">
+            <span class="essentials-tag">Mental Health</span>
+            <h3>PTSD, MST &amp; more</h3>
+            <p>Vet Centers, evidence-based PTSD therapy, MST care for life, OTH eligibility, free non-VA options.</p>
+          </a>
+          <a href="/homeless-veterans" class="essentials-card">
+            <span class="essentials-tag">Housing</span>
+            <h3>If you're losing housing</h3>
+            <p>HUD-VASH, SSVF, the 24/7 National Call Center. What to do tonight if you're in your car or about to be evicted.</p>
+          </a>
+          <a href="/caregivers" class="essentials-card">
+            <span class="essentials-tag">For Caregivers</span>
+            <h3>Caregivers — PCAFC stipend</h3>
+            <p>The major program most caregivers don't know about. Stipend, training, respite, mental health, CHAMPVA.</p>
+          </a>
+          <a href="/claim-help" class="essentials-card">
+            <span class="essentials-tag">Walkthrough</span>
+            <h3>Are you owed something?</h3>
+            <p>2-minute eligibility check that surfaces VA benefits you may not have filed for. Free VSO referrals.</p>
+          </a>
+          <a href="/scam-alerts" class="essentials-card">
+            <span class="essentials-tag">Stay Safe</span>
+            <h3>Scams targeting veterans</h3>
+            <p>Pension poaching, claim sharks, romance scams, fake charities. Red flags and where to report.</p>
+          </a>
+          <a href="/survivor-benefits" class="essentials-card">
+            <span class="essentials-tag">For Families</span>
+            <h3>If you've lost a veteran</h3>
+            <p>DIC, CHAMPVA, Fry Scholarship, the Survivor Benefit Plan — and who to call first.</p>
+          </a>
+          <a href="/buddy-check" class="essentials-card">
+            <span class="essentials-tag">Reach Out</span>
+            <h3>Buddy check guide</h3>
+            <p>5-minute guide for reaching out to a veteran you're worried about. What to ask, what to say, what to do.</p>
+          </a>
+          <a href="/crisis" class="essentials-card crisis">
+            <span class="essentials-tag">Crisis Support</span>
+            <h3>Crisis &amp; 988 navigator</h3>
+            <p>If you or someone you know is in crisis right now. Multiple paths in. Confidential.</p>
+          </a>
+        </div>
+      </section>
 
       <!-- Continue Reading (last unfinished story) -->
       <div id="continue-reading-mount"></div>
@@ -430,42 +509,52 @@
           <a href="/donate" class="btn btn-gold">Support Our Mission</a>
         </div>
         <div class="footer-col">
-          <h4>Read</h4>
+          <h4>Guides</h4>
           <ul>
-            <li><a href="/">Today's Briefing</a></li>
-            <li><a href="/news">All News</a></li>
-            <li><a href="/news#benefits">Benefits</a></li>
-            <li><a href="/news#health">Health</a></li>
-            <li><a href="/news#advocacy">Advocacy</a></li>
-            <li><a href="/rss.xml">RSS Feed</a></li>
+            <li><a href="/pact-act">PACT Act</a></li>
+            <li><a href="/va-disability">VA Disability</a></li>
+            <li><a href="/va-appeals">VA Appeals</a></li>
+            <li><a href="/gi-bill">GI Bill</a></li>
+            <li><a href="/va-home-loan">VA Home Loan</a></li>
+            <li><a href="/va-healthcare">VA Healthcare</a></li>
+            <li><a href="/guides"><strong>All 28 Guides →</strong></a></li>
           </ul>
         </div>
         <div class="footer-col">
-          <h4>Connect</h4>
+          <h4>For Families</h4>
           <ul>
-            <li><a href="/events">Events</a></li>
-            <li><a href="/resources">Find Help</a></li>
-            <li><a href="/about">About</a></li>
-            <li><a href="https://www.warriorsfund.org" target="_blank" rel="noopener">Warriors Fund</a></li>
+            <li><a href="/mental-health">Mental Health</a></li>
+            <li><a href="/caregivers">Caregivers</a></li>
+            <li><a href="/military-spouses">Military Spouses</a></li>
+            <li><a href="/survivor-benefits">Survivor Benefits</a></li>
+            <li><a href="/buddy-check">Buddy Check Guide</a></li>
+            <li><a href="/women-veterans">Women Veterans</a></li>
           </ul>
         </div>
         <div class="footer-col">
           <h4>Get Help</h4>
           <ul>
-            <li><a href="tel:988">Crisis Line: 988</a></li>
+            <li><a href="tel:988"><strong>Crisis Line: 988</strong></a></li>
             <li><a href="sms:838255">Crisis Text: 838255</a></li>
-            <li><a href="https://www.va.gov/find-locations/" target="_blank" rel="noopener">Find a VA</a></li>
-            <li><a href="https://www.va.gov/disability/how-to-file-claim/" target="_blank" rel="noopener">File a Claim</a></li>
+            <li><a href="/crisis">Crisis Hub</a></li>
+            <li><a href="/claim-help">File a Claim</a></li>
+            <li><a href="/scam-alerts">Scam Alerts</a></li>
+            <li><a href="/states">By State</a></li>
           </ul>
         </div>
         <div class="footer-col">
-          <h4>Standards</h4>
+          <h4>Site</h4>
           <ul>
+            <li><a href="/news">All News</a></li>
+            <li><a href="/events">Events</a></li>
+            <li><a href="/resources">Find Help</a></li>
+            <li><a href="/about">About</a></li>
             <li><a href="/editorial-standards">Editorial Standards</a></li>
             <li><a href="/corrections">Corrections</a></li>
-            <li><a href="/press">Press &amp; Media</a></li>
+            <li><a href="/press">Press</a></li>
             <li><a href="/privacy">Privacy</a></li>
             <li><a href="/terms">Terms</a></li>
+            <li><a href="/rss.xml">RSS</a></li>
           </ul>
         </div>
       </div>

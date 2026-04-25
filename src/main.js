@@ -249,15 +249,28 @@ async function load() {
     checkAlerts(state.articles);
   } catch (err) {
     console.error('load failed', err);
-    if (el.briefingList) el.briefingList.innerHTML = '<li class="loading">Unable to load briefing. Please refresh.</li>';
-    if (el.storyList) el.storyList.innerHTML = '<div class="loading">Unable to load stories.</div>';
+    const failure = (label) => `<div class="failure-state"><span>${label}</span><button type="button" onclick="location.reload()">Retry</button></div>`;
+    if (el.leadStoryMount) el.leadStoryMount.innerHTML = failure('Stories couldn’t load.');
+    if (el.briefingList) el.briefingList.innerHTML = '';
+    const railRoot = document.getElementById('briefing-rail');
+    if (railRoot) railRoot.style.display = 'none';
+    if (el.storyList) el.storyList.innerHTML = failure('Network feed unavailable.');
+    const eventsList = el.eventsList;
+    if (eventsList && eventsList.querySelector('.loading')) eventsList.innerHTML = failure('Events couldn’t load.');
+    const trending = document.getElementById('trending-strip');
+    if (trending) trending.style.display = 'none';
   }
 }
 
 // Most Read — top 5 by quality score, prioritizing the past 24 hours
 function renderMostRead(articles) {
   const mount = document.getElementById('most-read-list');
-  if (!mount || !articles.length) return;
+  if (!mount) return;
+  const hideRail = () => {
+    const root = document.querySelector('.most-read');
+    if (root) root.style.display = 'none';
+  };
+  if (!articles.length) { hideRail(); return; }
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
   const recent = articles.filter(a => {
     const t = a.publishDate ? new Date(a.publishDate).getTime() : 0;
@@ -269,7 +282,7 @@ function renderMostRead(articles) {
     .slice()
     .sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
     .slice(0, 5);
-  if (!pool.length) return;
+  if (!pool.length) { hideRail(); return; }
   mount.innerHTML = pool.map(s => `
     <li>
       <a href="/news/${esc(s.slug || s.id)}">${esc(s.title)}</a>
