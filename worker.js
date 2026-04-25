@@ -971,11 +971,12 @@ function injectArticleData(template, article) {
         <span>·</span><span>${readTime} min read</span>
       </div>
       <div class="story-actions">
+        <button class="action-btn" data-share data-share-title="${escapeHtml(article.title || '')}" data-share-url="${articleUrl}">↗ Share</button>
         <button class="action-btn" id="copy-btn" onclick="navigator.clipboard.writeText(window.location.href).then(()=>{this.textContent='✓ Copied'});setTimeout(()=>{this.textContent='📋 Copy link'},1500)">📋 Copy link</button>
-        <a class="action-btn" target="_blank" rel="noopener" href="https://twitter.com/intent/tweet?text=${shareTitle}&url=${shareUrl}">𝕏 Share</a>
-        <a class="action-btn" target="_blank" rel="noopener" href="https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}">in Share</a>
-        <a class="action-btn" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=${shareUrl}">f Share</a>
-        <a class="action-btn" href="mailto:?subject=${shareTitle}&body=${shareUrl}">✉ Email</a>
+        <a class="action-btn" target="_blank" rel="noopener" href="https://twitter.com/intent/tweet?text=${shareTitle}&url=${shareUrl}" aria-label="Share on X">𝕏</a>
+        <a class="action-btn" target="_blank" rel="noopener" href="https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}" aria-label="Share on LinkedIn">in</a>
+        <a class="action-btn" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=${shareUrl}" aria-label="Share on Facebook">f</a>
+        <a class="action-btn" href="mailto:?subject=${shareTitle}&body=${shareUrl}" aria-label="Share via email">✉</a>
       </div>
       ${article.image ? `<figure class="story-hero"><img src="${escapeHtml(article.image)}" alt="${escapeHtml(article.title || '')}" onerror="this.parentElement.outerHTML='<figure class=\\'story-hero\\'>${placeholderHtml(article, 'hero').replace(/'/g, '\\\'')}</figure>';this.onerror=null"></figure>` : `<figure class="story-hero">${placeholderHtml(article, 'hero')}</figure>`}
       <div class="story-body">
@@ -1617,7 +1618,11 @@ function shellPage({ title, description, canonicalPath, navActive, contentHtml, 
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Veteran News">
+  <meta name="format-detection" content="telephone=yes">
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}">
   <link rel="canonical" href="${url}">

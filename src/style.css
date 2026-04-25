@@ -1632,6 +1632,756 @@ button { font: inherit; cursor: pointer; border: none; background: none; color: 
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   iOS / iPhone-FIRST OVERRIDES
+   Almost all our users are on iPhone Safari. These overrides take precedence.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Safe-area variables — compose with our spacing scale */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --tabbar-height: 60px;
+}
+
+/* Use dynamic viewport units — 100vh on iOS Safari is broken */
+html, body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+/* Tap highlight on interactive elements */
+a, button, [role="button"], .chip, .quick-card, .resource-card,
+.story, .card, .row, .briefing-item, .topic-tile, .state-tile {
+  -webkit-tap-highlight-color: rgba(13, 35, 64, 0.08);
+  touch-action: manipulation;
+}
+
+/* Form inputs MUST be 16px or larger to prevent iOS auto-zoom on focus */
+input[type="email"],
+input[type="search"],
+input[type="text"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+select,
+textarea {
+  font-size: 16px !important;
+  -webkit-appearance: none;
+  appearance: none;
+}
+@media (min-width: 700px) {
+  /* Restore design-spec sizes on desktop where iOS zoom isn't a concern */
+  .searchbar input,
+  .newsletter-form input,
+  .calc-field input,
+  .calc-field select,
+  .search-modal-header input { font-size: 0.9375rem !important; }
+}
+
+/* Safe-area applied to the top bar */
+.statusbar {
+  padding-top: var(--safe-top);
+}
+
+/* Ensure body content never sits behind the bottom tab bar on iPhone */
+body.has-tabbar {
+  padding-bottom: calc(var(--tabbar-height) + var(--safe-bottom));
+}
+
+/* Hover styles applied ONLY when device actually has hover (not touch).
+   This eliminates "stuck hover state" on iPhone after a tap. */
+@media (hover: none) {
+  .story:hover,
+  .card:hover,
+  .row:hover,
+  .briefing-item:hover,
+  .topic-tile:hover,
+  .state-tile:hover,
+  .branch-tile:hover,
+  .resource-card:hover,
+  .quick-card:hover,
+  .lead-story:hover {
+    transform: none !important;
+    box-shadow: var(--shadow-sm);
+    border-color: var(--rule);
+  }
+  .row:hover { padding-left: 0; }
+  .filter-tab:hover, .chip:hover { color: inherit; background: var(--surface); }
+  .btn-primary:hover, .btn-secondary:hover, .btn-gold:hover { transform: none; }
+  .crisis-fab:hover { transform: none; }
+  .icon-btn:hover { background: transparent; color: var(--ink-muted); }
+  /* Active states feel better than hover on touch */
+  .story:active, .card:active, .row:active, .briefing-item:active,
+  .topic-tile:active, .resource-card:active, .quick-card:active,
+  .lead-story:active, .branch-tile:active, .state-tile:active {
+    transform: scale(0.98);
+    transition: transform 0.05s ease;
+  }
+  .btn:active, .chip:active, .filter-tab:active, .icon-btn:active {
+    opacity: 0.7;
+  }
+}
+
+/* ─── Bottom Tab Bar (iPhone signature pattern) ──────────────────────────── */
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 95;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--rule);
+  display: flex;
+  height: calc(var(--tabbar-height) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  box-shadow: 0 -2px 12px rgba(13, 35, 64, 0.06);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+}
+.tabbar a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 4px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  position: relative;
+  transition: color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  min-height: 44px;
+}
+.tabbar a svg {
+  width: 24px;
+  height: 24px;
+  stroke-width: 2;
+  flex-shrink: 0;
+}
+.tabbar a.active {
+  color: var(--navy);
+}
+:root[data-theme="dark"] .tabbar a.active,
+:root:not([data-theme="light"]) .tabbar a.active {
+  color: var(--gold-bright);
+}
+.tabbar a.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 3px;
+  background: var(--gold);
+  border-radius: 0 0 3px 3px;
+}
+.tabbar a.tab-crisis {
+  color: var(--crisis);
+}
+.tabbar a.tab-crisis svg {
+  fill: rgba(200, 49, 61, 0.08);
+}
+.tabbar-label {
+  white-space: nowrap;
+}
+.tabbar-badge {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 18px);
+  background: var(--crisis);
+  color: white;
+  font-size: 0.625rem;
+  font-weight: 700;
+  min-width: 16px; height: 16px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px;
+  border: 2px solid var(--bg-elevated);
+}
+
+/* Hide tabbar on desktop — primary nav handles it */
+@media (min-width: 800px) {
+  .tabbar { display: none !important; }
+  body.has-tabbar { padding-bottom: 0; }
+}
+
+/* On phones, hide the masthead's primary-nav since the bottom tab bar takes over */
+@media (max-width: 799px) {
+  .primary-nav { display: none; }
+  .menu-toggle { display: inline-flex !important; }
+  /* Hide the top "Support Veterans" donate button on phones — too dense; donate has its own tab */
+  .masthead-actions .btn-donate { display: none; }
+  /* Tighten the masthead vertical rhythm */
+  .masthead-inner { padding: var(--s-3) 0; gap: var(--s-3); }
+  .brand-mark { width: 32px; height: 32px; font-size: 0.75rem; }
+  .brand { font-size: 1.125rem; }
+  .brand-text small { display: none; }
+}
+
+/* ─── Crisis FAB redesign for iPhone ──────────────────────────────────────── */
+.crisis-fab { cursor: pointer; border: none; }
+.crisis-fab.crisis-fab-compact .crisis-fab-full-text { display: none; }
+.crisis-fab.crisis-fab-compact .crisis-fab-mobile-text {
+  display: inline;
+  font-weight: 700;
+}
+.crisis-fab.crisis-fab-compact { padding: 11px 14px; min-width: 56px; min-height: 44px; }
+.crisis-fab.crisis-fab-expanded .crisis-fab-mobile-text { display: none; }
+.crisis-fab.crisis-fab-expanded .crisis-fab-full-text { display: inline; }
+
+@media (max-width: 799px) {
+  /* Move FAB above the bottom tab bar AND iOS home indicator */
+  .crisis-fab {
+    bottom: calc(var(--tabbar-height) + var(--safe-bottom) + 12px);
+    right: 14px;
+    padding: 13px 18px 13px 14px;
+    font-size: 0.8125rem;
+    min-height: 44px;
+    box-shadow: 0 6px 20px rgba(200, 49, 61, 0.4), 0 1px 4px rgba(0,0,0,0.15);
+  }
+  .crisis-fab.crisis-fab-compact {
+    padding: 0;
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+    border-radius: 50%;
+    justify-content: center;
+  }
+  .crisis-fab.crisis-fab-compact::before { width: 10px; height: 10px; }
+  .crisis-fab::before { width: 9px; height: 9px; }
+}
+@media (min-width: 800px) {
+  /* Desktop: always show full label */
+  .crisis-fab .crisis-fab-mobile-text { display: none; }
+  .crisis-fab .crisis-fab-full-text { display: inline; }
+}
+
+/* ─── News ticker on phones ──────────────────────────────────────────────── */
+@media (max-width: 799px) {
+  .news-ticker-inner { height: 32px; }
+  .news-ticker-label {
+    padding: 0 var(--s-3);
+    font-size: 0.625rem;
+    letter-spacing: 0.1em;
+  }
+  .ticker-track { animation-duration: 75s; }
+  .ticker-item { padding: 0 var(--s-4); font-size: 0.75rem; }
+  .ticker-cat { font-size: 0.625rem; padding: 1px 5px; }
+  .ticker-source { display: none; }
+}
+
+/* ─── Statusbar on phones ────────────────────────────────────────────────── */
+@media (max-width: 799px) {
+  .statusbar-inner { min-height: 32px; padding: 4px 0; }
+  .status-meta {
+    font-size: 0.6875rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 60vw;
+  }
+  .crisis-pill {
+    padding: 5px 10px;
+    font-size: 0.6875rem;
+    min-height: 28px;
+  }
+  .crisis-pill::before { font-size: 0.75rem; }
+}
+
+/* ─── Hero & headlines on phones ─────────────────────────────────────────── */
+@media (max-width: 799px) {
+  .hero {
+    padding: var(--s-6) 0 var(--s-4);
+  }
+  .dateline {
+    font-size: 0.625rem;
+    letter-spacing: 0.08em;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    margin-bottom: var(--s-3);
+    padding-bottom: var(--s-3);
+  }
+  .greeting {
+    font-size: 0.6875rem;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--s-2);
+  }
+  .kicker {
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    margin-bottom: var(--s-4);
+  }
+  .hero-stats {
+    gap: var(--s-3);
+    padding-top: var(--s-3);
+    margin-top: var(--s-3);
+  }
+  .stat-card { min-width: 88px; }
+  .stat-num { font-size: 1.25rem; }
+  .stat-label { font-size: 0.625rem; }
+
+  /* Section heads tighter */
+  .section { padding: var(--s-7) 0; }
+  .section-head { padding-bottom: var(--s-3); margin-bottom: var(--s-4); }
+  .section-title { font-size: 1.25rem; }
+  .section-title small { display: block; font-size: 0.625rem; margin-top: 2px; }
+  .eyebrow { font-size: 0.625rem; }
+  .page-title { font-size: clamp(1.625rem, 7vw, 2.25rem) !important; }
+  .page-lede { font-size: 1rem; line-height: 1.55; }
+  .page-hero { padding: var(--s-6) 0 var(--s-5); margin-bottom: var(--s-5); }
+  .section-hero { padding: var(--s-6) 0 var(--s-5); margin-bottom: var(--s-5); }
+  .section-hero h1 { font-size: clamp(1.75rem, 8vw, 2.5rem); margin-bottom: var(--s-3); }
+
+  /* Lead story on phones — text-first, no aggressive image */
+  .lead-story-image { aspect-ratio: 3 / 2; }
+  .lead-story-body { padding: var(--s-4); }
+  .lead-story h2 { font-size: 1.25rem; line-height: 1.2; }
+  .lead-story p { font-size: 0.9375rem; }
+
+  /* Briefing items: kill numbers when tight */
+  .briefing-item {
+    grid-template-columns: 36px 1fr;
+    gap: var(--s-3);
+    padding: var(--s-3) 0;
+  }
+  .briefing-item::before { font-size: 1.25rem; }
+  .briefing-item h3 { font-size: 1rem; }
+
+  /* Card grid: single column on phones */
+  .feed-grid { grid-template-columns: 1fr !important; gap: var(--s-4); }
+  .card-image { aspect-ratio: 16 / 9; }
+  .card-body { padding: var(--s-4); }
+  .card-title { font-size: 1.0625rem; }
+
+  /* Story rows: kill image column on smallest phones */
+  .row {
+    grid-template-columns: 1fr 86px;
+    gap: var(--s-3);
+    padding: var(--s-4) 0;
+  }
+  .row:hover { padding-left: 0; }
+  .row-image { width: 86px; aspect-ratio: 1 / 1; }
+  .row-title { font-size: 1rem; }
+  .row-excerpt {
+    -webkit-line-clamp: 2;
+    font-size: 0.8125rem;
+  }
+
+  /* Filter chips: full-bleed scroll, larger touch */
+  .filters {
+    margin-left: calc(-1 * var(--s-5));
+    margin-right: calc(-1 * var(--s-5));
+    padding-left: var(--s-5);
+    padding-right: var(--s-5);
+    gap: var(--s-2);
+  }
+  .chip {
+    padding: 9px 14px;
+    font-size: 0.8125rem;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Quick actions grid */
+  .quick-actions { padding: var(--s-5) var(--s-4); }
+  .quick-grid { grid-template-columns: 1fr 1fr; gap: var(--s-2); }
+  .quick-card { padding: var(--s-3); }
+  .quick-icon { width: 28px; height: 28px; font-size: 0.875rem; }
+  .quick-card-title { font-size: 0.875rem; }
+  .quick-card-desc { font-size: 0.75rem; }
+
+  /* Crisis CTA */
+  .crisis-cta { padding: var(--s-5) var(--s-4); margin: var(--s-7) 0; }
+  .crisis-cta h3 { font-size: 1.25rem; }
+  .crisis-cta p { font-size: 0.9375rem; }
+  .crisis-cta-actions { flex-direction: column; gap: var(--s-2); }
+  .crisis-cta .btn { width: 100%; padding: 14px 20px; font-size: 0.9375rem; min-height: 48px; }
+
+  /* Crisis page hero: bigger emergency cards on phones */
+  .crisis-page-hero { padding: var(--s-7) 0; }
+  .crisis-page-hero h1 { font-size: clamp(1.75rem, 7vw, 2.25rem); }
+  .crisis-cards { grid-template-columns: 1fr; gap: var(--s-3); }
+  .crisis-card-big { padding: var(--s-4); }
+  .crisis-card-big-action { font-size: 1.625rem; }
+  .crisis-card-big-detail { font-size: 0.875rem; }
+
+  /* Story page typography on phones */
+  .story-page { padding: var(--s-6) 0; }
+  .story-title { font-size: clamp(1.5rem, 6vw, 2rem); margin-bottom: var(--s-4); }
+  .story-byline { font-size: 0.8125rem; padding-bottom: var(--s-4); margin-bottom: var(--s-4); gap: var(--s-2); }
+  .story-actions { gap: var(--s-2); margin-bottom: var(--s-4); }
+  .action-btn { padding: 8px 12px; font-size: 0.75rem; min-height: 36px; }
+  .story-body { font-size: 1.0625rem; line-height: 1.7; }
+  .story-body p { margin-bottom: var(--s-4); }
+  /* Kill drop-cap on phones — the float looks awful at narrow widths */
+  .story-body p:first-of-type::first-letter {
+    float: none;
+    font-size: 1.0625rem;
+    margin: 0;
+    color: inherit;
+    font-family: inherit;
+    font-weight: inherit;
+  }
+  .story-hero { margin: var(--s-4) -var(--s-5) var(--s-5); border-radius: 0; }
+  .story-hero img { aspect-ratio: 16 / 10; }
+  .story-source { padding: var(--s-4); font-size: 0.875rem; }
+
+  /* Resource grid → single col on phones */
+  .resource-grid { grid-template-columns: 1fr !important; gap: var(--s-3); }
+  .resource-card { padding: var(--s-4); }
+
+  /* State grid: 3 columns of 2-letter codes */
+  .state-grid { grid-template-columns: repeat(3, 1fr); gap: var(--s-2); }
+  .state-tile { padding: var(--s-3); }
+  .state-tile-name { font-size: 0.875rem; }
+
+  /* Topics grid */
+  .topics-grid { grid-template-columns: 1fr; }
+  .topic-tile { padding: var(--s-4); }
+
+  /* Branch tiles */
+  .branch-grid { grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+  .branch-tile { padding: var(--s-4) var(--s-3); }
+  .branch-emblem { width: 48px; height: 48px; font-size: 1rem; }
+
+  /* Newsletter (if shown) */
+  .newsletter { padding: var(--s-5) var(--s-4); margin: var(--s-7) 0; }
+  .newsletter h3 { font-size: 1.375rem; }
+  .newsletter p { font-size: 0.9375rem; }
+  .newsletter-form { flex-direction: column; gap: var(--s-2); }
+  .newsletter-form input { min-width: 0; padding: 14px 16px; min-height: 48px; }
+  .newsletter-form button { padding: 14px 20px; min-height: 48px; }
+
+  /* Container padding */
+  .container, .container-narrow, .container-reading {
+    padding-left: max(var(--s-4), var(--safe-left));
+    padding-right: max(var(--s-4), var(--safe-right));
+  }
+
+  /* WF banner stacking */
+  .wf-banner {
+    grid-template-columns: 1fr;
+    text-align: center;
+    padding: var(--s-5) var(--s-4);
+    gap: var(--s-3);
+  }
+  .wf-shield { margin: 0 auto; }
+  .wf-banner .btn { width: 100%; }
+
+  /* Footer */
+  .footer-top { gap: var(--s-5); }
+  .footer-col h4 { margin-bottom: var(--s-2); }
+  .site-footer { padding: var(--s-7) 0 var(--s-5); }
+}
+
+/* ─── Mobile drawer (when menu-toggle tapped) ────────────────────────────── */
+@media (max-width: 799px) {
+  .mobile-nav {
+    width: 88%;
+    max-width: 320px;
+    padding: calc(var(--safe-top) + var(--s-5)) var(--s-5) calc(var(--safe-bottom) + var(--s-5));
+    height: 100vh;
+    height: 100dvh;
+  }
+  .mobile-nav a {
+    padding: var(--s-4) 0;
+    font-size: 1.0625rem;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+  }
+  body.no-scroll { position: fixed; width: 100%; }
+}
+
+/* Search modal on phones — full sheet from bottom */
+@media (max-width: 799px) {
+  .search-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .search-modal {
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    margin-top: 25vh;
+    margin-bottom: 0;
+    align-self: stretch;
+  }
+  .search-modal-header {
+    padding: var(--s-4);
+    padding-top: calc(var(--safe-top, 0px) + var(--s-3));
+  }
+  .search-modal-body { max-height: 70vh; }
+}
+
+/* Audio reader — sit above tabbar */
+@media (max-width: 799px) {
+  .audio-reader-bar {
+    bottom: calc(var(--tabbar-height) + var(--safe-bottom));
+    padding: var(--s-2) var(--s-3) var(--s-2);
+  }
+}
+
+/* News ticker performance: pause animation on slow devices */
+@media (prefers-reduced-motion: reduce) and (max-width: 799px) {
+  .ticker-track { animation: none; }
+}
+
+/* ─── Masthead hide-on-scroll-down (BBC pattern, mobile only) ────────────── */
+.masthead { transition: transform 0.25s var(--ease); }
+.masthead.masthead-hidden { transform: translateY(-100%); }
+@media (min-width: 800px) { .masthead.masthead-hidden { transform: none; } }
+
+/* ─── Crisis Sheet (bottom sheet on FAB tap) ─────────────────────────────── */
+.crisis-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s var(--ease);
+}
+.crisis-sheet.open {
+  pointer-events: auto;
+  opacity: 1;
+}
+.crisis-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(13, 35, 64, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.crisis-sheet-card {
+  position: relative;
+  background: var(--bg-elevated);
+  width: 100%;
+  max-width: 480px;
+  border-radius: 20px 20px 0 0;
+  padding: var(--s-4) var(--s-5) calc(var(--s-5) + var(--safe-bottom));
+  transform: translateY(100%);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 0 -12px 40px rgba(0,0,0,0.25);
+  max-height: 92vh;
+  max-height: 92dvh;
+  overflow-y: auto;
+}
+.crisis-sheet.open .crisis-sheet-card { transform: translateY(0); }
+@media (min-width: 600px) {
+  .crisis-sheet { align-items: center; }
+  .crisis-sheet-card { border-radius: 16px; max-width: 440px; padding: var(--s-6); }
+}
+.crisis-sheet-handle {
+  width: 40px;
+  height: 4px;
+  background: var(--rule-strong);
+  border-radius: 2px;
+  margin: 0 auto var(--s-4);
+}
+@media (min-width: 600px) { .crisis-sheet-handle { display: none; } }
+.crisis-sheet-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--gold);
+  font-weight: 700;
+  margin-bottom: var(--s-2);
+}
+.crisis-sheet-card h3 {
+  font-family: var(--font-headline);
+  font-size: 1.625rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--s-2);
+  color: var(--ink);
+}
+.crisis-sheet-card p {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--ink-muted);
+  margin-bottom: var(--s-5);
+}
+.crisis-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.crisis-sheet-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  text-align: left;
+  text-decoration: none;
+  color: var(--ink);
+  transition: all 0.15s;
+  min-height: 64px;
+}
+.crisis-sheet-btn:hover { border-color: var(--rule-strong); background: var(--surface-2); }
+.crisis-sheet-btn.primary {
+  background: linear-gradient(135deg, var(--crisis-deep), var(--crisis));
+  color: white;
+  border-color: var(--crisis);
+}
+.crisis-sheet-btn.primary:hover {
+  background: var(--crisis-deep);
+}
+.crisis-sheet-btn-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  font-size: 1.125rem;
+  flex-shrink: 0;
+}
+.crisis-sheet-btn.primary .crisis-sheet-btn-icon {
+  background: rgba(255, 255, 255, 0.18);
+}
+.crisis-sheet-btn-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.crisis-sheet-btn-body strong {
+  font-family: var(--font-headline);
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+.crisis-sheet-btn-body small {
+  font-size: 0.8125rem;
+  opacity: 0.8;
+}
+.crisis-sheet-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--rule);
+  font-size: 0.8125rem;
+}
+.crisis-sheet-footer a {
+  color: var(--navy);
+  font-weight: 600;
+}
+:root[data-theme="dark"] .crisis-sheet-footer a,
+:root:not([data-theme="light"]) .crisis-sheet-footer a { color: var(--gold-bright); }
+.crisis-sheet-close {
+  background: none;
+  border: none;
+  color: var(--ink-soft);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+  min-height: 44px;
+}
+
+/* ─── Final touch-target & safe-area polish ──────────────────────────────── */
+@media (max-width: 799px) {
+  /* Bump menu toggle and icon buttons to 44pt */
+  .menu-toggle { width: 44px !important; height: 44px !important; }
+  .icon-btn { width: 44px !important; height: 44px !important; }
+  .audio-reader-btn { width: 44px; height: 44px; }
+  /* Hotline strip — these are crisis numbers, must be easy to tap */
+  .tel-strip a {
+    padding: 14px 16px;
+    font-size: 0.875rem;
+    min-height: 48px;
+    width: 100%;
+  }
+  .tel-strip { flex-direction: column; gap: var(--s-2); }
+  /* Action buttons on stories — bigger */
+  .action-btn { padding: 10px 14px; min-height: 40px; font-size: 0.8125rem; }
+  /* Toast above the home indicator */
+  .toast { bottom: calc(var(--tabbar-height) + var(--safe-bottom) + 12px); }
+  /* Skip-link respects notch */
+  .skip-link { top: calc(-100px + var(--safe-top)); }
+  .skip-link:focus { top: calc(var(--safe-top) + var(--s-3)); }
+  /* Progress bar respects notch */
+  .read-progress { top: var(--safe-top); }
+  /* Mobile nav drawer narrower so closing tap zone is bigger */
+  .mobile-nav { width: 80%; max-width: 280px; }
+  /* Search modal: keyboard-aware */
+  .search-modal-body { max-height: 60dvh; }
+  /* Filter chips: scroll-snap for satisfying flick scroll */
+  .filters { scroll-snap-type: x mandatory; }
+  .chip { scroll-snap-align: start; }
+}
+
+/* Body scroll-lock for iOS Safari (overflow:hidden alone isn't enough) */
+body.no-scroll {
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+/* Backdrop-filter with -webkit prefix + opaque fallback */
+.masthead {
+  -webkit-backdrop-filter: saturate(180%) blur(8px);
+}
+@supports not (backdrop-filter: blur(8px)) {
+  .masthead { background: var(--bg-elevated); }
+}
+.search-overlay {
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Form autofill on iOS Safari */
+input:-webkit-autofill,
+select:-webkit-autofill,
+textarea:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-elevated) inset;
+  -webkit-text-fill-color: var(--ink);
+  caret-color: var(--ink);
+}
+
+/* iOS Smart App Banner space (in case we ever ship a native app — reserve no space for now) */
+
+/* ─── Pull-to-refresh visual cue ─────────────────────────────────────────── */
+.ptr-indicator {
+  position: fixed;
+  top: var(--safe-top);
+  left: 50%;
+  transform: translate(-50%, -100%);
+  z-index: 70;
+  background: var(--navy);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  transition: transform 0.2s var(--ease);
+  pointer-events: none;
+}
+.ptr-indicator.show { transform: translate(-50%, 8px); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
    PHASE 2 — National Publication Components
    News ticker · search modal · icon buttons · section hero
    branch hub · calculators · saved · legal pages

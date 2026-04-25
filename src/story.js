@@ -281,11 +281,12 @@ function renderStory(article) {
       <span>·</span><span>${readTime} min read</span>
     </div>
     <div class="story-actions">
+      <button class="action-btn" id="share-btn" data-share data-share-title="${esc(article.title || '')}" data-share-url="${esc(url)}">↗ Share</button>
       <button class="action-btn" id="copy-btn">📋 Copy link</button>
-      <a class="action-btn" target="_blank" rel="noopener" href="https://twitter.com/intent/tweet?text=${shareTitle}&url=${shareUrl}">𝕏 Share</a>
-      <a class="action-btn" target="_blank" rel="noopener" href="https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}">in Share</a>
-      <a class="action-btn" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=${shareUrl}">f Share</a>
-      <a class="action-btn" href="mailto:?subject=${shareTitle}&body=${shareUrl}">✉ Email</a>
+      <a class="action-btn" target="_blank" rel="noopener" href="https://twitter.com/intent/tweet?text=${shareTitle}&url=${shareUrl}">𝕏</a>
+      <a class="action-btn" target="_blank" rel="noopener" href="https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}">in</a>
+      <a class="action-btn" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=${shareUrl}">f</a>
+      <a class="action-btn" href="mailto:?subject=${shareTitle}&body=${shareUrl}">✉</a>
     </div>
     ${article.image ? `<figure class="story-hero"><img src="${esc(article.image)}" alt="" onerror="this.src='/placeholder.svg';this.onerror=null"></figure>` : ''}
     <div class="story-body">

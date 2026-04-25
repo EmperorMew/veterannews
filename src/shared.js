@@ -14,27 +14,212 @@ document.addEventListener('DOMContentLoaded', () => {
   initSavedBadge();
   initKeyboardShortcuts();
   injectActionButtons();
+  injectBottomTabbar();
   injectCrisisFAB();
+  injectCrisisSheet();
+  initScrollAwareMasthead();
+  initNativeShare();
   registerServiceWorker();
 });
 
-// Crisis FAB — always-visible 988 button. The most important UI element.
+// ─── Bottom tab bar (iPhone signature pattern) ─────────────────────────────
+// Auto-injected on every page. Visible only on phones via CSS.
+// 5 destinations: Briefing / News / Find Help / Saved / Donate.
+function injectBottomTabbar() {
+  if (document.getElementById('tabbar')) return;
+  const path = window.location.pathname;
+  const isActive = (paths) => paths.some(p => path === p || (p !== '/' && path.startsWith(p))) ? ' active' : '';
+  const tabs = [
+    { href: '/', label: 'Briefing', match: ['/'], icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V9.5z"/></svg>' },
+    { href: '/news', label: 'News', match: ['/news', '/benefits', '/health', '/service', '/transition', '/advocacy', '/legacy', '/community', '/family', '/branch', '/topics', '/archive', '/source'], icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="9" x2="17" y2="9"/><line x1="7" y1="13" x2="17" y2="13"/><line x1="7" y1="17" x2="13" y2="17"/></svg>' },
+    { href: '/resources', label: 'Find Help', match: ['/resources', '/states', '/state', '/claim-help', '/scam-alerts', '/buddy-check', '/survivor-benefits', '/tools'], icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 8.5 8.5 0 0 1-7.6-4.7L3 21l1.9-5.4A8.38 8.38 0 0 1 4 12c0-4.6 3.8-8.5 8.5-8.5S21 7.4 21 11.5z"/></svg>' },
+    { href: '/saved', label: 'Saved', match: ['/saved'], icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>' },
+    { href: '/donate', label: 'Donate', match: ['/donate', '/about'], icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>' }
+  ];
+  const tabbar = document.createElement('nav');
+  tabbar.id = 'tabbar';
+  tabbar.className = 'tabbar';
+  tabbar.setAttribute('role', 'navigation');
+  tabbar.setAttribute('aria-label', 'Primary');
+  tabbar.innerHTML = tabs.map(t => {
+    const active = isActive(t.match);
+    const badge = t.label === 'Saved' ? '<span class="tabbar-badge" id="tabbar-saved-badge" hidden>0</span>' : '';
+    return `<a href="${t.href}" class="${active.trim()}" aria-label="${t.label}">
+      ${t.icon}
+      <span class="tabbar-label">${t.label}</span>
+      ${badge}
+    </a>`;
+  }).join('');
+  document.body.appendChild(tabbar);
+  document.body.classList.add('has-tabbar');
+}
+
+// ─── Scroll-aware masthead (BBC/CNN pattern: hide on scroll-down) ─────────
+function initScrollAwareMasthead() {
+  const masthead = document.querySelector('.masthead');
+  if (!masthead) return;
+  // Only on phones — desktop keeps masthead always visible
+  const mq = window.matchMedia('(max-width: 799px)');
+  if (!mq.matches) return;
+
+  let lastY = window.scrollY;
+  let ticking = false;
+  const threshold = 6;
+
+  function update() {
+    const y = window.scrollY;
+    const delta = y - lastY;
+    if (Math.abs(delta) > threshold) {
+      if (delta > 0 && y > 80) {
+        masthead.classList.add('masthead-hidden');
+      } else if (delta < 0) {
+        masthead.classList.remove('masthead-hidden');
+      }
+      lastY = y;
+    }
+    ticking = false;
+  }
+
+  window.addEventListener('scroll', () => {
+    if (!ticking) { requestAnimationFrame(update); ticking = true; }
+  }, { passive: true });
+}
+
+// ─── Crisis Sheet (bottom-sheet on FAB tap, with Text/Chat/Call options) ──
+function injectCrisisSheet() {
+  if (document.getElementById('crisis-sheet')) return;
+  const sheet = document.createElement('div');
+  sheet.id = 'crisis-sheet';
+  sheet.className = 'crisis-sheet';
+  sheet.setAttribute('role', 'dialog');
+  sheet.setAttribute('aria-modal', 'true');
+  sheet.setAttribute('aria-labelledby', 'crisis-sheet-title');
+  sheet.innerHTML = `
+    <div class="crisis-sheet-backdrop" data-close></div>
+    <div class="crisis-sheet-card">
+      <div class="crisis-sheet-handle"></div>
+      <div class="crisis-sheet-eyebrow">Veterans Crisis Line · 24/7 · Free · Confidential</div>
+      <h3 id="crisis-sheet-title">Talk to someone.</h3>
+      <p>You don't have to be in crisis. Calling will not affect your clearance, benefits, job, or firearms.</p>
+      <div class="crisis-sheet-actions">
+        <a href="sms:838255" class="crisis-sheet-btn">
+          <span class="crisis-sheet-btn-icon">💬</span>
+          <span class="crisis-sheet-btn-body">
+            <strong>Text 838255</strong>
+            <small>Lowest stigma · responds quickly</small>
+          </span>
+        </a>
+        <a href="https://www.veteranscrisisline.net/get-help/chat" target="_blank" rel="noopener" class="crisis-sheet-btn">
+          <span class="crisis-sheet-btn-icon">⌨</span>
+          <span class="crisis-sheet-btn-body">
+            <strong>Chat online</strong>
+            <small>veteranscrisisline.net/chat</small>
+          </span>
+        </a>
+        <a href="tel:988" class="crisis-sheet-btn primary">
+          <span class="crisis-sheet-btn-icon">📞</span>
+          <span class="crisis-sheet-btn-body">
+            <strong>Call 988, press 1</strong>
+            <small>Trained responder · often a veteran</small>
+          </span>
+        </a>
+      </div>
+      <div class="crisis-sheet-footer">
+        <a href="/crisis">Full crisis support hub →</a>
+        <button class="crisis-sheet-close" data-close>Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(sheet);
+
+  sheet.addEventListener('click', (e) => {
+    if (e.target.dataset && e.target.dataset.close !== undefined) closeCrisisSheet();
+    if (e.target.classList && e.target.classList.contains('crisis-sheet-close')) closeCrisisSheet();
+  });
+  // ESC to close
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sheet.classList.contains('open')) closeCrisisSheet();
+  });
+}
+
+function openCrisisSheet() {
+  const sheet = document.getElementById('crisis-sheet');
+  if (!sheet) return;
+  sheet.classList.add('open');
+  document.body.classList.add('no-scroll');
+}
+function closeCrisisSheet() {
+  document.getElementById('crisis-sheet')?.classList.remove('open');
+  document.body.classList.remove('no-scroll');
+}
+window.VN = window.VN || {};
+window.VN.openCrisisSheet = openCrisisSheet;
+window.VN.closeCrisisSheet = closeCrisisSheet;
+
+// ─── Native iOS Share Sheet ──────────────────────────────────────────────
+function initNativeShare() {
+  document.querySelectorAll('[data-share]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const data = {
+        title: btn.dataset.shareTitle || document.title,
+        text: btn.dataset.shareText || '',
+        url: btn.dataset.shareUrl || window.location.href
+      };
+      if (navigator.share) {
+        try { await navigator.share(data); } catch {}
+      } else {
+        try {
+          await navigator.clipboard.writeText(data.url);
+          if (window.VN?.showToast) window.VN.showToast('Link copied');
+        } catch {}
+      }
+    });
+  });
+}
+
+// Crisis FAB — always-visible button that opens the crisis sheet.
+// On tap: opens a bottom-sheet with Text/Chat/Call options + anti-stigma copy.
+// On long-press / right-click: navigates to the full /crisis hub.
 function injectCrisisFAB() {
   if (document.getElementById('crisis-fab')) return;
-  // Hide on /crisis page itself (no point doubling)
   if (window.location.pathname === '/crisis' || window.location.pathname === '/crisis/') return;
-  const fab = document.createElement('a');
+
+  const fab = document.createElement('button');
   fab.id = 'crisis-fab';
-  fab.href = 'tel:988';
+  fab.type = 'button';
   fab.className = 'crisis-fab';
-  fab.setAttribute('aria-label', 'Call Veterans Crisis Line: 988, press 1');
-  fab.innerHTML = '<span class="crisis-fab-full-text">988 · Press 1</span><span class="crisis-fab-mobile-text">988</span>';
-  // Long-press / right-click → take to /crisis page for fuller resources
-  let pressTimer;
-  fab.addEventListener('contextmenu', (e) => { e.preventDefault(); window.location.href = '/crisis'; });
-  fab.addEventListener('touchstart', () => { pressTimer = setTimeout(() => { window.location.href = '/crisis'; }, 800); }, { passive: true });
-  fab.addEventListener('touchend', () => clearTimeout(pressTimer));
+  fab.setAttribute('aria-label', 'Open Veterans Crisis Line options');
+  fab.innerHTML = '<span class="crisis-fab-full-text">Talk to someone</span><span class="crisis-fab-mobile-text">988</span>';
+
+  fab.addEventListener('click', (e) => {
+    e.preventDefault();
+    openCrisisSheet();
+  });
+  // Long-press → /crisis full hub (deeper resources)
+  fab.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    window.location.href = '/crisis';
+  });
   document.body.appendChild(fab);
+
+  // Shrink-on-scroll, expand-on-pause (defeats FAB blindness)
+  let lastY = window.scrollY;
+  let scrollTimer;
+  fab.classList.add('crisis-fab-expanded');
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    if (Math.abs(y - lastY) > 4) {
+      fab.classList.remove('crisis-fab-expanded');
+      fab.classList.add('crisis-fab-compact');
+      lastY = y;
+    }
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      fab.classList.remove('crisis-fab-compact');
+      fab.classList.add('crisis-fab-expanded');
+    }, 600);
+  }, { passive: true });
 }
 
 function registerServiceWorker() {
@@ -287,11 +472,15 @@ function toggleSaved(article) {
   return true;
 }
 function updateSavedBadge() {
-  const badge = document.getElementById('saved-badge');
-  if (!badge) return;
   const count = getSaved().length;
-  badge.textContent = count;
-  badge.hidden = count === 0;
+  const badges = [
+    document.getElementById('saved-badge'),
+    document.getElementById('tabbar-saved-badge')
+  ].filter(Boolean);
+  badges.forEach(b => {
+    b.textContent = count;
+    b.hidden = count === 0;
+  });
 }
 function initSavedBadge() {
   // Defer until injectActionButtons runs
