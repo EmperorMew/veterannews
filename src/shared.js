@@ -14,7 +14,36 @@ document.addEventListener('DOMContentLoaded', () => {
   initSavedBadge();
   initKeyboardShortcuts();
   injectActionButtons();
+  injectCrisisFAB();
+  registerServiceWorker();
 });
+
+// Crisis FAB — always-visible 988 button. The most important UI element.
+function injectCrisisFAB() {
+  if (document.getElementById('crisis-fab')) return;
+  // Hide on /crisis page itself (no point doubling)
+  if (window.location.pathname === '/crisis' || window.location.pathname === '/crisis/') return;
+  const fab = document.createElement('a');
+  fab.id = 'crisis-fab';
+  fab.href = 'tel:988';
+  fab.className = 'crisis-fab';
+  fab.setAttribute('aria-label', 'Call Veterans Crisis Line: 988, press 1');
+  fab.innerHTML = '<span class="crisis-fab-full-text">988 · Press 1</span><span class="crisis-fab-mobile-text">988</span>';
+  // Long-press / right-click → take to /crisis page for fuller resources
+  let pressTimer;
+  fab.addEventListener('contextmenu', (e) => { e.preventDefault(); window.location.href = '/crisis'; });
+  fab.addEventListener('touchstart', () => { pressTimer = setTimeout(() => { window.location.href = '/crisis'; }, 800); }, { passive: true });
+  fab.addEventListener('touchend', () => clearTimeout(pressTimer));
+  document.body.appendChild(fab);
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  // Register on idle so it doesn't block page load
+  const reg = () => navigator.serviceWorker.register('/sw.js').catch(() => {});
+  if ('requestIdleCallback' in window) requestIdleCallback(reg);
+  else setTimeout(reg, 1000);
+}
 
 // ─── Theme (light / dark / system) ────────────────────────────────────────
 function initTheme() {

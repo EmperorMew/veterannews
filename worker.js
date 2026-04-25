@@ -197,6 +197,30 @@ export default {
       return serveSavedPage(env, url, request);
     }
 
+    // Crisis & life-saving pages — highest priority
+    if (pathname === '/crisis' || pathname === '/crisis/' || pathname === '/help' || pathname === '/988') {
+      return serveCrisisPage(env, url, request);
+    }
+    if (pathname === '/scam-alerts' || pathname === '/scams' || pathname === '/fraud') {
+      return serveScamAlertsPage(env, url, request);
+    }
+    if (pathname === '/claim-help' || pathname === '/eligibility' || pathname === '/file-claim') {
+      return serveClaimHelpPage(env, url, request);
+    }
+    if (pathname === '/survivor-benefits' || pathname === '/survivors') {
+      return serveSurvivorBenefitsPage(env, url, request);
+    }
+    if (pathname === '/buddy-check') {
+      return serveBuddyCheckPage(env, url, request);
+    }
+
+    // States hub + state-specific pages
+    if (pathname === '/states' || pathname === '/states/') {
+      return serveStatesIndex(env, url, request);
+    }
+    const stateMatch = pathname.match(/^\/state\/([a-z]{2})\/?$/);
+    if (stateMatch) return serveStatePage(env, url, request, stateMatch[1].toUpperCase());
+
     // Editorial / legal pages
     if (pathname === '/editorial-standards' || pathname === '/standards' || pathname === '/ethics') {
       return serveEditorialPage(env, url, request);
@@ -3151,3 +3175,815 @@ async function handleImageSitemap(env) {
   xml += '\n</urlset>';
   return new Response(xml, { status: 200, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIFE-SAVING PAGES
+// /crisis · /scam-alerts · /claim-help · /survivor-benefits · /buddy-check
+// /states · /state/[code]
+// ════════════════════════════════════════════════════════════════════════════
+
+async function serveCrisisPage(env, url, request) {
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  const ld = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: [
+      {
+        '@type': 'Question',
+        name: 'What is the Veterans Crisis Line?',
+        acceptedAnswer: { '@type': 'Answer', text: 'Free, confidential 24/7 support for veterans, service members, and their families. Call 988 and press 1, text 838255, or chat online at veteranscrisisline.net. You do not need to be enrolled in VA care.' }
+      },
+      {
+        '@type': 'Question',
+        name: 'What happens when I call 988 and press 1?',
+        acceptedAnswer: { '@type': 'Answer', text: 'A trained responder — many of them veterans themselves — answers. They listen first. They do not start with diagnosis or paperwork. They do not automatically dispatch police or VA. You can stay anonymous. Most calls last 15-30 minutes and end with a plan you helped make.' }
+      },
+      {
+        '@type': 'Question',
+        name: 'What if my buddy isn\'t picking up?',
+        acceptedAnswer: { '@type': 'Answer', text: 'Drive over if you can. If not, call their last commander, a mutual friend, or a family member who can do a wellness check. As a last resort, call local police for a wellness check — but tell them clearly: this is a veteran in mental health crisis, not an active threat.' }
+      }
+    ]
+  };
+
+  const content = `
+    <section class="crisis-page-hero">
+      <div class="container">
+        <div class="eyebrow">Veterans Crisis Line · 24/7 · Confidential · Free</div>
+        <h1>You served. Now let us serve you.</h1>
+        <p>If you or a veteran you know is in crisis right now, the line below is the fastest way to reach a trained responder. Many are veterans themselves. You don't need to be enrolled in VA care. You can stay anonymous.</p>
+        <div class="crisis-cards">
+          <a href="tel:988" class="crisis-card-big">
+            <div class="crisis-card-big-label">Call</div>
+            <div class="crisis-card-big-action">988 · Press 1</div>
+            <div class="crisis-card-big-detail">Free · 24/7 · Confidential</div>
+          </a>
+          <a href="sms:838255" class="crisis-card-big">
+            <div class="crisis-card-big-label">Text</div>
+            <div class="crisis-card-big-action">838255</div>
+            <div class="crisis-card-big-detail">Send any message — they'll respond</div>
+          </a>
+          <a href="https://www.veteranscrisisline.net/get-help/chat" target="_blank" rel="noopener" class="crisis-card-big">
+            <div class="crisis-card-big-label">Chat</div>
+            <div class="crisis-card-big-action">Online</div>
+            <div class="crisis-card-big-detail">veteranscrisisline.net</div>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <div class="container-narrow">
+      <article class="story-body">
+        <h2>If this is now</h2>
+        <p>Stop reading and call <strong>988, press 1</strong>. Or text <strong>838255</strong>. The person who picks up will not start with paperwork. They will listen.</p>
+        <p>You don't need to be sure it's a "real" crisis. You don't need to have a plan. You don't need to have been deployed, or wounded, or anything. If you're hurting, you qualify.</p>
+
+        <h2>What happens when you call</h2>
+        <p>A trained responder — most often a veteran themselves — answers. They will:</p>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.6em;">Ask if you're safe right now. That's it. No demographic intake. No insurance verification.</li>
+          <li style="margin-bottom:.6em;">Let you talk. They will not interrupt with "have you tried therapy?"</li>
+          <li style="margin-bottom:.6em;">Help you make a plan that fits the next few hours, not the next few months. Where will you sleep tonight. Who can you call tomorrow. What's one small thing you can do right now.</li>
+          <li style="margin-bottom:.6em;">Connect you to your local VA Suicide Prevention Coordinator if you want it. Not if you don't.</li>
+          <li style="margin-bottom:.6em;">They will <em>not</em> automatically dispatch police, ambulance, or VA Police. That happens only if you're an immediate danger to yourself or someone else and refuse to make a safety plan.</li>
+        </ul>
+        <p>Most calls last 15-30 minutes. You can stay anonymous. You can call again, or call about someone else, as many times as you need.</p>
+
+        <h2>If you're worried about a buddy</h2>
+        <p>Veterans usually don't reach out — because they don't want to be a burden, because they think they should handle it, because the culture taught them to. So <strong>you</strong> have to be the one to reach out.</p>
+        <p><strong>Do this:</strong></p>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.6em;">Call them, don't text. Voice matters. If they don't pick up, leave a real voicemail.</li>
+          <li style="margin-bottom:.6em;">Ask the question directly: "Are you thinking about killing yourself?" Asking does not plant the idea. Research is unanimous on this. It tells them they're not alone in the thought.</li>
+          <li style="margin-bottom:.6em;">If they say yes, stay on the line. Get to them in person if you can. If you can't, get someone they trust to.</li>
+          <li style="margin-bottom:.6em;">Help them remove access to lethal means — at minimum, lock up firearms or hand them to someone else for the weekend. Most suicide attempts happen within an hour of the decision being made. Time and distance save lives.</li>
+        </ul>
+        <p><strong>Don't do this:</strong></p>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.6em;">Don't say "you have so much to live for." It tells them their pain is invalid.</li>
+          <li style="margin-bottom:.6em;">Don't argue. They've already had every argument with themselves a hundred times.</li>
+          <li style="margin-bottom:.6em;">Don't call the cops as your first move. Police-on-veteran wellness checks have killed people. Use 988 first. Use a buddy first. Use VA Police via the local VA hospital before calling 911 if you can.</li>
+        </ul>
+
+        <div class="warning-box">
+          <h3>Warning signs</h3>
+          <p>Talking about being a burden. Giving away possessions. Sudden calm after a depressive period (the decision feels made). Increase in alcohol or drug use. Withdrawal from family/buddies. Reckless behavior. Unusual interest in funerals or end-of-life planning. Direct or indirect mentions of "ending it" or "checking out."</p>
+          <p style="margin-top:var(--s-3);"><strong>Three or more of these in someone you know — do a buddy check today, not tomorrow.</strong></p>
+        </div>
+
+        <h2>What if they won't pick up the phone</h2>
+        <p>Drive over. That's the answer most of the time. Coffee, drop in, no agenda.</p>
+        <p>If you can't get there: call a mutual friend, a sibling, an old commander, anyone in their life who can. If nothing else works, call the local non-emergency police line — not 911 — and request a <em>wellness check on a veteran in mental health crisis</em>. Use those exact words. Ask if they have a Crisis Intervention Trained (CIT) officer.</p>
+
+        <h2>For spouses and family</h2>
+        <p>Living with PTSD, TBI, or moral injury affects the household. You are not crazy. You are not selfish for needing support.</p>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.6em;"><a href="https://www.caregiver.va.gov/" target="_blank" rel="noopener">VA Caregiver Support</a> — free counseling, respite care, and a national caregiver line: <strong>1-855-260-3274</strong></li>
+          <li style="margin-bottom:.6em;"><a href="https://www.elizabethdolefoundation.org/hidden-heroes/" target="_blank" rel="noopener">Elizabeth Dole Foundation Hidden Heroes</a> — community for military &amp; veteran caregivers</li>
+          <li style="margin-bottom:.6em;"><a href="https://www.bluestarfam.org/" target="_blank" rel="noopener">Blue Star Families</a> — programs for the home front</li>
+          <li style="margin-bottom:.6em;"><a href="https://www.taps.org/" target="_blank" rel="noopener">TAPS</a> — for families who have lost a service member or veteran (incl. to suicide). 24/7: <strong>1-800-959-TAPS (8277)</strong></li>
+        </ul>
+
+        <h2>Specific support</h2>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.6em;"><strong>Women veterans:</strong> <a href="https://www.womenshealth.va.gov/" target="_blank" rel="noopener">womenshealth.va.gov</a> · Women Veterans Call Center: 1-855-829-6636</li>
+          <li style="margin-bottom:.6em;"><strong>LGBTQ+ veterans:</strong> <a href="https://www.patientcare.va.gov/lgbt/" target="_blank" rel="noopener">patientcare.va.gov/lgbt</a> · Trevor Project (LGBTQ youth/young adult): 1-866-488-7386</li>
+          <li style="margin-bottom:.6em;"><strong>MST survivors:</strong> Free VA care regardless of discharge status. <a href="https://www.mentalhealth.va.gov/msthome/" target="_blank" rel="noopener">mentalhealth.va.gov/msthome</a></li>
+          <li style="margin-bottom:.6em;"><strong>Substance use:</strong> SAMHSA Helpline 1-800-662-4357 · 24/7</li>
+          <li style="margin-bottom:.6em;"><strong>Homeless veterans:</strong> National Call Center 1-877-424-3838</li>
+        </ul>
+
+        <h2>Beyond the crisis line</h2>
+        <div class="resource-grid">
+          <a href="https://stopsoldiersuicide.org/" target="_blank" rel="noopener" class="resource-card">
+            <h3>Stop Soldier Suicide</h3>
+            <p>Veteran-led peer support &amp; advocacy. Confidential outreach.</p>
+            <span class="resource-card-cta">stopsoldiersuicide.org →</span>
+          </a>
+          <a href="https://giveanhour.org/" target="_blank" rel="noopener" class="resource-card">
+            <h3>Give an Hour</h3>
+            <p>Free mental health services from licensed providers volunteering their time.</p>
+            <span class="resource-card-cta">giveanhour.org →</span>
+          </a>
+          <a href="https://www.woundedwarriorproject.org/programs/wwp-talk" target="_blank" rel="noopener" class="resource-card">
+            <h3>WWP Talk</h3>
+            <p>Free peer-support phone calls with trained warriors. Weekly check-ins.</p>
+            <span class="resource-card-cta">WWP Talk →</span>
+          </a>
+          <a href="https://www.nami.org/" target="_blank" rel="noopener" class="resource-card">
+            <h3>NAMI Helpline</h3>
+            <p>Mental Health America &amp; NAMI Helpline 1-800-950-6264. Information &amp; referrals.</p>
+            <span class="resource-card-cta">nami.org →</span>
+          </a>
+          <a href="/buddy-check" class="resource-card">
+            <h3>Buddy Check Tool</h3>
+            <p>Quick guide for reaching out to someone you're worried about.</p>
+            <span class="resource-card-cta">/buddy-check →</span>
+          </a>
+          <a href="/resources" class="resource-card">
+            <h3>Full Directory</h3>
+            <p>VA, VSOs, jobs, healthcare, housing, family — vetted resources.</p>
+            <span class="resource-card-cta">/resources →</span>
+          </a>
+        </div>
+
+        <h2>Lethal means safety</h2>
+        <p>Most veteran suicides involve firearms — not because veterans are uniquely violent, but because firearms are uniquely lethal. If a veteran in your life is in a hard period, putting time and distance between them and a firearm is the single highest-impact thing you can do.</p>
+        <p>This is not about taking rights. It's about temporary storage. Options:</p>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.6em;">Have a buddy or family member hold the firearm for the weekend, the month, or as long as needed</li>
+          <li style="margin-bottom:.6em;">Use a gun-shop or pawn-shop hold (most are familiar with the concept)</li>
+          <li style="margin-bottom:.6em;">Locked safe with combination held by someone else</li>
+          <li style="margin-bottom:.6em;">Cable lock around the firearm</li>
+        </ul>
+        <p>Same logic for medications: put pill bottles in a locked box during a hard time, give the key to a partner.</p>
+        <p>The VA has a free <a href="https://www.va.gov/REACH/" target="_blank" rel="noopener">gun lock distribution program</a>. Pick one up at any VA medical center, no questions asked.</p>
+
+        <h2>One more thing</h2>
+        <p>If you're reading this because you're hurting: you reached out by reading. That counts. Now make one more move. Pick up the phone. Or text. Or chat. Pick the one that costs you the least energy.</p>
+        <p style="margin-top:var(--s-5);">
+          <a href="tel:988" class="btn btn-crisis" style="font-size:1.125rem;padding:var(--s-4) var(--s-7);">Call 988 — Press 1</a>
+        </p>
+      </article>
+    </div>`;
+
+  return new Response(shellPage({
+    title: 'Crisis Support — Veteran News',
+    description: 'Free, confidential 24/7 support for veterans, service members, and families. Call 988 press 1, text 838255, or chat online. What to expect, how to help a buddy, and resources beyond the crisis line.',
+    canonicalPath: '/crisis',
+    navActive: '',
+    contentHtml: content,
+    extraHead: `<script type="application/ld+json">${JSON.stringify(ld)}</script>`
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600', 'X-Important': 'crisis' } });
+}
+
+// ── Scam alerts ───────────────────────────────────────────────────────────
+async function serveScamAlertsPage(env, url, request) {
+  const scams = [
+    { name: 'PACT Act / Burn Pit Claim Sharks', summary: 'Companies charging veterans hundreds or thousands to "help file" PACT Act or other VA claims that VSOs file for free.', flags: 'Up-front fees · "We work with the VA" claims · Pressure tactics · Anyone charging ANY money for a VA claim is breaking federal law (Title 38 §5904).', what: 'Hang up. File for free with an accredited VSO (DAV, VFW, American Legion). Report to VA OIG and FTC.', report: 'va.gov/ogc/accreditation.asp · ftc.gov/complaint' },
+    { name: 'Pension Poaching', summary: 'Bad-faith advisors talking elderly veterans into restructuring assets to "qualify" for the Aid &amp; Attendance pension — usually with high-fee annuities or trusts that benefit the advisor.', flags: 'Free dinner seminars · "Hide your assets" advice · Annuity sales bundled with VA benefits · Advisor not VA-accredited.', what: 'Walk away. Talk to a VA-accredited attorney or VSO instead. Asset transfers can backfire under VA\'s 3-year look-back rule.', report: 'va.gov/ogc/accreditation.asp · state insurance commissioner' },
+    { name: 'Identity Theft via DD-214', summary: 'Scammers obtain or buy DD-214 records and use SSN, service dates, and dependents to open credit, file false tax returns, or steal benefits.', flags: 'Unexpected denials of credit · Mail addressed to a name you don\'t recognize · Tax return rejected as "already filed."', what: 'Freeze credit at all 3 bureaus (free for veterans &amp; family). File IRS form 14039. Place active-duty alert if applicable.', report: 'identitytheft.gov · ftc.gov · IRS Identity Theft 1-800-908-4490' },
+    { name: 'Romance Scams', summary: 'Often targeting elderly or recently-widowed veterans through dating apps and social media — eventually asking for money for "emergency" travel, medical bills, or "investments."', flags: 'Romance moves fast · Refuses to video call · Always traveling/deployed · Asks for gift cards or wire transfers · Can\'t meet in person.', what: 'Stop sending money. Talk to a trusted family member. Search photos via reverse image lookup.', report: 'ic3.gov · AARP Fraud Watch Helpline 1-877-908-3360' },
+    { name: 'Recruiter / Fake VA Rep Impersonation', summary: 'Caller claims to be from the VA, the DoD, or "Veterans Affairs" and threatens benefit suspension unless personal info is verified.', flags: 'VA does not call to threaten benefit suspension · Caller has Caller-ID-spoofed VA numbers · Asks for SSN, banking info, or to "verify" your VA file number.', what: 'Hang up. Call VA at 1-800-827-1000 directly to confirm.', report: 'oig.va.gov · ftc.gov' },
+    { name: 'GI Bill Education Fraud', summary: 'For-profit schools targeting veterans with high-cost programs that don\'t lead to recognized credentials, exhausting GI Bill benefits.', flags: 'Aggressive recruiters · "GI Bill is wasted if not used now" · Programs not regionally accredited · No published job-placement rates.', what: 'Check school accreditation at ed.gov. Look up program at va.gov/education/gi-bill-comparison-tool/.', report: 'va.gov/ogc/feedback · State Approving Agency' },
+    { name: 'Vehicle Warranty Scams', summary: 'Aggressive robocalls claiming "your warranty is about to expire" — particularly targeting veterans with VA pension direct-deposit who may seem like easier marks for high-pressure sales.', flags: 'Unsolicited robocall · Demands quick decision · Asks for VIN, address, payment.', what: 'Don\'t engage. Real warranty providers don\'t cold-call.', report: 'donotcall.gov · ftc.gov' },
+    { name: 'Stolen Valor Charity Fraud', summary: 'Fake or low-percentage "veteran charities" using military imagery and aggressive telemarketing to collect donations that never reach veterans.', flags: 'High-pressure phone solicitations · Vague descriptions of programs · No financials available · Charity not on Charity Navigator or GuideStar.', what: 'Donate only to known, audited charities. Check Charity Navigator before giving.', report: 'ftc.gov · state attorney general' },
+    { name: 'Phantom Loan / Refi Schemes', summary: 'Predatory VA-loan refinancing offers ("$0 closing!", "skip-a-payment!") that strip equity, churn the loan, and lock veterans into worse terms.', flags: 'Unsolicited refinance pitch · "Skip a payment" promises · No comparison to current loan · Pressure to close fast.', what: 'Talk to your current servicer first. Consult a VA-accredited housing counselor.', report: 'va.gov/housing-assistance · CFPB consumerfinance.gov' },
+    { name: 'TSP / IRA Rollover Scams', summary: 'Brokers pressuring transitioning service members to roll TSP into high-fee annuities or speculative investments at separation.', flags: 'Free seminars timed to separation · Promises of guaranteed returns · "TSP is government-controlled" fearmongering · Advisor not a fiduciary.', what: 'TSP is one of the lowest-fee retirement vehicles in America. Most service members should leave it alone or roll into a low-fee IRA — never into an annuity sold by the same person advising.', report: 'sec.gov/tcr · finra.org/complaint' },
+    { name: 'Caregiver Program Scams', summary: 'Companies promising to "guarantee" approval into the VA Caregiver Program (PCAFC) — a benefit that is determined exclusively by VA clinicians.', flags: 'Up-front fees · "We have inside contacts at VA" · "Guaranteed approval" language.', what: 'Apply directly through caregiver.va.gov. Free help via your local VA Caregiver Support Coordinator.', report: 'va.gov/ogc · oig.va.gov' },
+    { name: 'Phantom Job Offers', summary: 'Fake "veteran-priority" job listings collecting personal info or charging for "background processing fees" — sometimes routing through fake LinkedIn profiles of recruiters.', flags: 'Asks for SSN before interview · Charges any fee · Email from public domain (gmail) for a "corporate" job · Salary too good to be true.', what: 'Verify employer through their official .com careers page. Use Hiring Our Heroes &amp; VA Employment for vetted listings.', report: 'ic3.gov · LinkedIn report' }
+  ];
+
+  const cards = scams.map(s => `
+    <div class="resource-card" style="display:block;">
+      <h3>${escapeHtml(s.name)}</h3>
+      <p style="margin-bottom:var(--s-3);">${s.summary}</p>
+      <p style="font-size:0.8125rem;"><strong>Red flags:</strong> ${s.flags}</p>
+      <p style="font-size:0.8125rem;margin-top:var(--s-2);"><strong>What to do:</strong> ${s.what}</p>
+      <p style="font-size:0.8125rem;margin-top:var(--s-2);"><strong>Report to:</strong> ${s.report}</p>
+    </div>`).join('');
+
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <div class="eyebrow">Fraud Watch</div>
+        <h1 class="page-title">Veterans are targeted. Here's how to fight back.</h1>
+        <p class="page-lede">Scammers know veterans get steady benefits, follow procedure, and trust authority. That's why veterans get hit harder than the general population. The 12 scams below are the ones VA OIG, FTC, and AARP Fraud Watch flag most often. Knowing them is half the defense.</p>
+      </div>
+    </section>
+    <div class="container">
+      <div class="warning-box">
+        <h3>Two rules that defeat 90% of veteran fraud</h3>
+        <p><strong>1. No one charges money to file a VA claim.</strong> It's against federal law (38 USC §5904). VSOs file for free. Anyone asking for money is breaking the law.</p>
+        <p><strong>2. The VA does not call to threaten suspension of benefits.</strong> If you're getting that call, it's a scam. Hang up and call VA directly at 1-800-827-1000.</p>
+      </div>
+      <h2 style="font-family:var(--font-headline);font-size:1.75rem;margin:var(--s-7) 0 var(--s-5);">The 12 most common veteran-targeting scams</h2>
+      <div class="crisis-resource-grid">${cards}</div>
+
+      <div class="resource-block" style="margin-top:var(--s-9);">
+        <div class="h-eyebrow">If You've Been Targeted</div>
+        <h2>Where to report</h2>
+        <div class="resource-grid">
+          <a href="https://www.ftc.gov/complaint" target="_blank" rel="noopener" class="resource-card">
+            <h3>FTC ReportFraud.gov</h3>
+            <p>Federal Trade Commission's central fraud complaint portal. Use this for almost anything.</p>
+            <span class="resource-card-cta">reportfraud.ftc.gov →</span>
+          </a>
+          <a href="https://www.va.gov/oig/hotline/" target="_blank" rel="noopener" class="resource-card">
+            <h3>VA Office of Inspector General</h3>
+            <p>For fraud against the VA itself, accredited-rep violations, or VA-employee misconduct. Hotline: 1-800-488-8244</p>
+            <span class="resource-card-cta">va.gov/oig →</span>
+          </a>
+          <a href="https://www.ic3.gov" target="_blank" rel="noopener" class="resource-card">
+            <h3>FBI Internet Crime IC3</h3>
+            <p>Online scams, romance fraud, business email compromise.</p>
+            <span class="resource-card-cta">ic3.gov →</span>
+          </a>
+          <a href="https://www.aarp.org/money/scams-fraud/" target="_blank" rel="noopener" class="resource-card">
+            <h3>AARP Fraud Watch Helpline</h3>
+            <p>Free, even if you're not an AARP member. Counselors who specialize in elder fraud. 1-877-908-3360</p>
+            <span class="resource-card-cta">aarp.org/fraud →</span>
+          </a>
+          <a href="https://www.consumerfinance.gov/complaint" target="_blank" rel="noopener" class="resource-card">
+            <h3>CFPB</h3>
+            <p>Consumer Financial Protection Bureau — for predatory loans, refis, banking, debt collection.</p>
+            <span class="resource-card-cta">consumerfinance.gov →</span>
+          </a>
+          <a href="https://www.identitytheft.gov" target="_blank" rel="noopener" class="resource-card">
+            <h3>IdentityTheft.gov</h3>
+            <p>Step-by-step recovery plan if your DD-214, SSN, or credit was used.</p>
+            <span class="resource-card-cta">identitytheft.gov →</span>
+          </a>
+        </div>
+      </div>
+    </div>`;
+
+  return new Response(shellPage({
+    title: 'Scam Alerts: 12 Frauds Targeting Veterans — Veteran News',
+    description: 'The most common scams targeting U.S. veterans in 2026. Pension poaching, claim sharks, romance scams, fake charities, identity theft. Red flags, what to do, and where to report.',
+    canonicalPath: '/scam-alerts',
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+// ── Buddy check page ──────────────────────────────────────────────────────
+async function serveBuddyCheckPage(env, url, request) {
+  const content = `
+    <section class="page-hero">
+      <div class="container-narrow">
+        <div class="eyebrow">Buddy Check</div>
+        <h1 class="page-title">When in doubt, reach out.</h1>
+        <p class="page-lede">Veterans rarely ask for help. So if someone in your unit, your platoon, your old chain, your family — has been quiet, or off, or different — you go first. Here's a 5-minute guide.</p>
+      </div>
+    </section>
+    <div class="container-narrow">
+      <article class="story-body">
+        <h2>Step 1: Pick up the phone</h2>
+        <p>Call. Don't text first. Voice carries everything text can't — tone, breath, the long pause before a "yeah, I'm fine." If they don't pick up, leave a voicemail that's specific (use their name, your name, "just checking in") instead of "call me when you can."</p>
+
+        <h2>Step 2: Open with something specific</h2>
+        <p>Don't lead with "are you okay." That's the question they've been told to lie to since basic. Instead:</p>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.5em;">"I was thinking about that time at [specific shared moment]. How's life?"</li>
+          <li style="margin-bottom:.5em;">"What's the worst thing that's happened to you this month? Mine was —"</li>
+          <li style="margin-bottom:.5em;">"I owe you a beer. When am I paying up?"</li>
+        </ul>
+        <p>Specific, low-stakes, easy to answer. Builds the bridge.</p>
+
+        <h2>Step 3: Listen for the iceberg</h2>
+        <p>Most of what's wrong is below the waterline. Listen for:</p>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.5em;">"I'm just tired all the time"</li>
+          <li style="margin-bottom:.5em;">"It doesn't matter"</li>
+          <li style="margin-bottom:.5em;">"My family would be better off"</li>
+          <li style="margin-bottom:.5em;">"I'm fine, but —"</li>
+          <li style="margin-bottom:.5em;">Sudden calm after a hard period (decision feels made)</li>
+          <li style="margin-bottom:.5em;">Talking about giving things away</li>
+        </ul>
+
+        <h2>Step 4: Ask the question</h2>
+        <p style="font-size:1.25rem;font-family:var(--font-headline);"><strong>"Are you thinking about killing yourself?"</strong></p>
+        <p>Direct. Specific. Yes-or-no.</p>
+        <p>Asking does <em>not</em> plant the idea. The American Foundation for Suicide Prevention, the VA, every clinician, every veteran-led peer program — they all agree on this. Not asking is the risk. Asking is the safety check.</p>
+        <p>If they say "no, I'm not there" — you've still opened a door. Stay on the call. Talk about whatever they want.</p>
+        <p>If they say yes — stay on the line. Don't rush. Don't moralize. Don't promise to fix anything. Just stay. And then:</p>
+
+        <h2>Step 5: Get them to 988</h2>
+        <p>"I want you to call the Veterans Crisis Line right now. I'll stay with you while you do, or I'll three-way it with you." Hand them the lifeline. The trained responder on the other end of 988 will do the next part.</p>
+        <p style="margin-top:var(--s-5);">
+          <a href="tel:988" class="btn btn-crisis" style="font-size:1.0625rem;">Call 988 with them — Press 1</a>
+        </p>
+
+        <h2>Step 6: Lethal means</h2>
+        <p>If they have a firearm and they're in the dark place, the most important next move is to put time and distance between them and it. Offer to hold it for the weekend. Drive over and pick it up. Or get them to a buddy who can.</p>
+        <p>Most attempts happen within an hour of the decision. A gun safe with a combination they don't have is enough to get past that hour.</p>
+        <p>This isn't anti-gun. It's anti-loss. They want their firearms back when they're through the storm.</p>
+
+        <h2>Step 7: Don't disappear</h2>
+        <p>Day after, day after that, the next week — call again. The buddy check that matters is the second one and the third one. The first call is the door. The follow-ups are the road.</p>
+
+        <div class="warning-box">
+          <h3>If you can't reach them and you're worried right now</h3>
+          <p>Drive over. If you can't, get someone closer to do it — a sibling, an old commander, anyone who can lay eyes on them.</p>
+          <p>Last resort: call the local non-emergency police line and request a wellness check on a veteran in mental health crisis. Use those exact words. Ask if they have a Crisis Intervention Trained (CIT) officer.</p>
+          <p style="margin-top:var(--s-2);">Don't lead with 911 unless they have a weapon and are an immediate threat to someone else. Police-on-veteran wellness checks have killed people. Use 988 first, family first, the wellness-check line before 911.</p>
+        </div>
+
+        <h2>For yourself</h2>
+        <p>Doing buddy checks takes a toll. After a hard call, do a check on yourself. Stop Soldier Suicide, Wounded Warrior Project Talk, Give an Hour — they exist for the people doing the catching, too.</p>
+      </article>
+    </div>`;
+
+  return new Response(shellPage({
+    title: 'Buddy Check Guide — Veteran News',
+    description: '5-minute guide for reaching out to a veteran you\'re worried about. What to ask, what to listen for, what to do if they\'re in crisis.',
+    canonicalPath: '/buddy-check',
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+// ── Claim help walkthrough ────────────────────────────────────────────────
+async function serveClaimHelpPage(env, url, request) {
+  const content = `
+    <section class="page-hero">
+      <div class="container-narrow">
+        <div class="eyebrow">Claim Help</div>
+        <h1 class="page-title">Are you owed something you haven't filed for?</h1>
+        <p class="page-lede">A quick walkthrough to surface VA benefits you may be eligible for. Takes about 2 minutes. Connects you to a free VSO at the end — no fees, ever, for filing a VA claim.</p>
+      </div>
+    </section>
+    <div class="container-narrow">
+      <div id="claim-help-app">
+        <!-- Question 1 -->
+        <div class="claim-question" id="q1">
+          <h3>Did you serve on active duty in the U.S. military?</h3>
+          <p style="color:var(--ink-muted);margin-bottom:var(--s-4);">Including activated National Guard or Reserve.</p>
+          <div class="claim-options">
+            <div class="claim-option" data-q="1" data-v="yes"><span class="claim-option-marker"></span> Yes, active duty / activated</div>
+            <div class="claim-option" data-q="1" data-v="no"><span class="claim-option-marker"></span> No / Reserve only / Not sure</div>
+          </div>
+        </div>
+
+        <div class="claim-question" id="q2" hidden>
+          <h3>Was your discharge other than dishonorable?</h3>
+          <p style="color:var(--ink-muted);margin-bottom:var(--s-4);">Honorable, General, or Under Honorable Conditions all qualify. OTH may still qualify for some benefits.</p>
+          <div class="claim-options">
+            <div class="claim-option" data-q="2" data-v="yes"><span class="claim-option-marker"></span> Yes, honorable or general</div>
+            <div class="claim-option" data-q="2" data-v="oth"><span class="claim-option-marker"></span> OTH / not sure / want to upgrade</div>
+            <div class="claim-option" data-q="2" data-v="no"><span class="claim-option-marker"></span> Bad conduct / dishonorable</div>
+          </div>
+        </div>
+
+        <div class="claim-question" id="q3" hidden>
+          <h3>Did you serve in any of these locations or eras?</h3>
+          <p style="color:var(--ink-muted);margin-bottom:var(--s-4);">Select all that apply. PACT Act expanded coverage massively in 2022.</p>
+          <div class="claim-options">
+            <div class="claim-option" data-q="3" data-v="vietnam"><span class="claim-option-marker"></span> Vietnam (in-country, Thailand, Laos, Cambodia)</div>
+            <div class="claim-option" data-q="3" data-v="gulf"><span class="claim-option-marker"></span> Gulf War (1990-91)</div>
+            <div class="claim-option" data-q="3" data-v="post911"><span class="claim-option-marker"></span> Iraq, Afghanistan, Syria, or Horn of Africa post-9/11</div>
+            <div class="claim-option" data-q="3" data-v="burnpit"><span class="claim-option-marker"></span> Anywhere with burn pits or open-air waste burning</div>
+            <div class="claim-option" data-q="3" data-v="atomic"><span class="claim-option-marker"></span> Atomic veteran / nuclear test exposure</div>
+            <div class="claim-option" data-q="3" data-v="campLejeune"><span class="claim-option-marker"></span> Camp Lejeune 1953-1987</div>
+            <div class="claim-option" data-q="3" data-v="other"><span class="claim-option-marker"></span> None of the above / not sure</div>
+          </div>
+        </div>
+
+        <div class="claim-question" id="q4" hidden>
+          <h3>Do you have any of these health conditions?</h3>
+          <p style="color:var(--ink-muted);margin-bottom:var(--s-4);">Select any that apply. The PACT Act made many of these "presumptive" — meaning VA assumes service connection if you served in a covered location.</p>
+          <div class="claim-options">
+            <div class="claim-option" data-q="4" data-v="cancer"><span class="claim-option-marker"></span> Any cancer (especially lung, brain, GI, kidney, head/neck, melanoma)</div>
+            <div class="claim-option" data-q="4" data-v="respiratory"><span class="claim-option-marker"></span> Asthma, COPD, chronic bronchitis, sinusitis</div>
+            <div class="claim-option" data-q="4" data-v="hypertension"><span class="claim-option-marker"></span> Hypertension</div>
+            <div class="claim-option" data-q="4" data-v="diabetes"><span class="claim-option-marker"></span> Type 2 diabetes</div>
+            <div class="claim-option" data-q="4" data-v="ischemic"><span class="claim-option-marker"></span> Heart disease (ischemic)</div>
+            <div class="claim-option" data-q="4" data-v="parkinsons"><span class="claim-option-marker"></span> Parkinson's, parkinsonism, or tremor</div>
+            <div class="claim-option" data-q="4" data-v="ptsd"><span class="claim-option-marker"></span> PTSD, depression, anxiety, substance use</div>
+            <div class="claim-option" data-q="4" data-v="hearing"><span class="claim-option-marker"></span> Hearing loss / tinnitus</div>
+            <div class="claim-option" data-q="4" data-v="back"><span class="claim-option-marker"></span> Back, knee, joint, or musculoskeletal injury</div>
+            <div class="claim-option" data-q="4" data-v="none"><span class="claim-option-marker"></span> None of the above</div>
+          </div>
+        </div>
+
+        <div class="claim-question" id="result" hidden></div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        const state = { q1: null, q2: null, q3: new Set(), q4: new Set() };
+        document.querySelectorAll('.claim-option').forEach(opt => {
+          opt.addEventListener('click', () => {
+            const q = opt.dataset.q;
+            const v = opt.dataset.v;
+            if (q === '3' || q === '4') {
+              // multi-select
+              const set = state['q' + q];
+              if (set.has(v)) { set.delete(v); opt.classList.remove('selected'); }
+              else { set.add(v); opt.classList.add('selected'); }
+              advance(q);
+            } else {
+              state['q' + q] = v;
+              opt.parentElement.querySelectorAll('.claim-option').forEach(o => o.classList.remove('selected'));
+              opt.classList.add('selected');
+              advance(q);
+            }
+          });
+        });
+        function advance(currentQ) {
+          if (currentQ === '1') {
+            if (state.q1 === 'yes') showQ('q2');
+            else if (state.q1 === 'no') renderResult();
+          } else if (currentQ === '2') {
+            if (state.q2 === 'yes' || state.q2 === 'oth') showQ('q3');
+            else renderResult();
+          } else if (currentQ === '3') {
+            // Don't auto-advance for multi-select; show next + a "continue" inline
+            showQ('q4');
+          } else if (currentQ === '4') {
+            renderResult();
+          }
+        }
+        function showQ(id) {
+          const el = document.getElementById(id);
+          if (el) { el.hidden = false; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        }
+        function renderResult() {
+          const result = document.getElementById('result');
+          if (!result) return;
+          const benefits = [];
+          const notes = [];
+          if (state.q1 === 'no') {
+            benefits.push({ name: 'Limited eligibility', desc: 'Most VA benefits require active-duty service. Activated Reserve / Guard service for federal duty (Title 10) usually qualifies. <a href="https://www.va.gov/find-locations/" target="_blank" rel="noopener">Talk to a Vet Center</a> to confirm.' });
+          } else if (state.q2 === 'no') {
+            benefits.push({ name: 'Discharge upgrade first', desc: 'A Bad Conduct or Dishonorable discharge blocks most VA benefits. But upgrades happen — especially for combat-related conditions or MST. Free help: <a href="https://www.dischargeupgrades.org/" target="_blank" rel="noopener">dischargeupgrades.org</a>.' });
+          } else {
+            // Eligible — build benefit list
+            benefits.push({ name: 'VA Healthcare', desc: 'Almost certainly eligible. Apply at <a href="https://www.va.gov/health-care/apply/application/introduction" target="_blank" rel="noopener">va.gov</a>. Free or low cost.' });
+            if (state.q4.size && !state.q4.has('none')) {
+              benefits.push({ name: 'Disability Compensation', desc: 'You have one or more conditions that may be service-connected. File a claim — VSOs do it free. Don\\'t self-rate or downplay.' });
+            }
+            // PACT Act presumption logic
+            const pactLocations = ['burnpit','post911','gulf','vietnam'];
+            const presumptiveConditions = ['cancer','respiratory','hypertension'];
+            const hasPactLoc = [...state.q3].some(l => pactLocations.includes(l));
+            const hasPresumptive = [...state.q4].some(c => presumptiveConditions.includes(c));
+            if (hasPactLoc && hasPresumptive) {
+              benefits.push({ name: '⚡ PACT Act Presumptive Conditions', desc: 'You may have presumptive service connection — meaning VA assumes the service caused the condition without you having to prove it. <strong>This is the biggest unfiled veteran benefit in America.</strong> File now.' });
+            }
+            if (state.q3.has('vietnam') && state.q4.has('parkinsons')) {
+              benefits.push({ name: 'Agent Orange / Parkinsonism', desc: 'Parkinson\\'s and parkinsonism are presumptive for Vietnam-era veterans exposed to Agent Orange.' });
+            }
+            if (state.q3.has('vietnam') && state.q4.has('ischemic')) {
+              benefits.push({ name: 'Agent Orange / Ischemic Heart Disease', desc: 'Ischemic heart disease is presumptive for Vietnam-era veterans.' });
+            }
+            if (state.q3.has('vietnam') && state.q4.has('diabetes')) {
+              benefits.push({ name: 'Agent Orange / Type 2 Diabetes', desc: 'Type 2 diabetes is presumptive for Vietnam-era veterans.' });
+            }
+            if (state.q3.has('campLejeune')) {
+              benefits.push({ name: 'Camp Lejeune Justice Act', desc: 'Veterans + family members exposed at Camp Lejeune 1953-1987 may file under the Camp Lejeune Justice Act in addition to standard VA claims. Many cancers and chronic illnesses qualify.' });
+            }
+            if (state.q4.has('hearing')) {
+              benefits.push({ name: 'Hearing Loss / Tinnitus', desc: 'These are the two most-claimed VA disabilities. If you served around aircraft, weapons, or explosions — you have a strong claim.' });
+            }
+            if (state.q4.has('ptsd')) {
+              benefits.push({ name: 'PTSD / Mental Health', desc: 'Combat veterans get presumptive PTSD service connection. Non-combat MST survivors and others have a path too. Free, fast, confidential evaluation.' });
+            }
+            if (state.q2 === 'oth') {
+              notes.push('Your OTH discharge may still qualify you for some benefits — and is potentially upgradeable. Free help: <a href="https://www.dischargeupgrades.org/" target="_blank" rel="noopener">dischargeupgrades.org</a>.');
+            }
+          }
+          const eligible = benefits.length > 1 || (state.q1 === 'yes' && state.q2 === 'yes');
+          result.hidden = false;
+          result.scrollIntoView({ behavior: 'smooth' });
+          result.innerHTML = '<div class="result-card ' + (eligible ? 'eligible' : 'partial') + '">' +
+            '<h3>' + (eligible ? 'You may be eligible for benefits you haven\\'t filed for.' : 'Some next steps to explore.') + '</h3>' +
+            '<ul style="padding-left:1.25em;margin:var(--s-4) 0 0;">' +
+              benefits.map(b => '<li style="margin-bottom:.75em;"><strong>' + b.name + '</strong> — ' + b.desc + '</li>').join('') +
+            '</ul>' +
+            (notes.length ? '<p style="margin-top:var(--s-4);font-size:0.875rem;opacity:0.92;">' + notes.join('<br>') + '</p>' : '') +
+          '</div>' +
+          '<div class="warning-box"><h3>Now: get free help filing</h3>' +
+          '<p>VSOs file VA claims for free. Always free. Anyone charging you is breaking federal law (38 USC §5904). The big ones, in alphabetical order:</p>' +
+          '<div class="resource-grid" style="margin-top:var(--s-4);">' +
+            '<a href="https://www.dav.org/find-your-local-office/" target="_blank" rel="noopener" class="resource-card"><h3>DAV</h3><p>Disabled American Veterans — largest VA-accredited claims service in the country.</p><span class="resource-card-cta">Find local office →</span></a>' +
+            '<a href="https://www.vfw.org/assistance/va-claims-separation-benefits" target="_blank" rel="noopener" class="resource-card"><h3>VFW</h3><p>Veterans of Foreign Wars — claims service in every state.</p><span class="resource-card-cta">VFW claims help →</span></a>' +
+            '<a href="https://www.legion.org/serviceofficers" target="_blank" rel="noopener" class="resource-card"><h3>American Legion</h3><p>Service officers in 3,000+ posts nationwide.</p><span class="resource-card-cta">Find a service officer →</span></a>' +
+            '<a href="https://www.warriorsfund.org" target="_blank" rel="noopener" class="resource-card"><h3>Warriors Fund</h3><p>Direct assistance and advocacy. Our parent organization.</p><span class="resource-card-cta">Get help →</span></a>' +
+          '</div></div>';
+        }
+      })();
+    </script>`;
+
+  return new Response(shellPage({
+    title: 'Claim Help: What VA Benefits Are You Owed? — Veteran News',
+    description: 'Quick 2-minute walkthrough to surface VA benefits you may be eligible for. PACT Act, Agent Orange, Camp Lejeune, presumptive conditions, hearing loss, PTSD. Connects to free VSO claim filing.',
+    canonicalPath: '/claim-help',
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+// ── Survivor benefits ─────────────────────────────────────────────────────
+async function serveSurvivorBenefitsPage(env, url, request) {
+  const content = `
+    <section class="page-hero">
+      <div class="container-narrow">
+        <div class="eyebrow">For Survivors</div>
+        <h1 class="page-title">If you've lost a veteran or service member.</h1>
+        <p class="page-lede">There are programs you may not know about, paperwork you don't have to navigate alone, and people whose entire job is helping you. This page is the navigator.</p>
+      </div>
+    </section>
+    <div class="container-narrow">
+      <article class="story-body">
+        <h2>If this is recent — start here</h2>
+        <p><strong>TAPS (Tragedy Assistance Program for Survivors)</strong> is the single most important call. Free 24/7 support, a national peer network, grief counseling, and they walk families through every form, benefit, and decision.</p>
+        <p style="font-size:1.125rem;"><a href="tel:18009598277" class="btn btn-primary">Call TAPS — 1-800-959-TAPS (8277)</a></p>
+
+        <h2>Major survivor benefits</h2>
+        <h3>Dependency and Indemnity Compensation (DIC)</h3>
+        <p>Tax-free monthly payment for surviving spouses, children, or parents of:</p>
+        <ul style="padding-left:1.5em;margin:var(--s-4) 0;">
+          <li style="margin-bottom:.5em;">A veteran whose death was service-connected</li>
+          <li style="margin-bottom:.5em;">A veteran rated 100% disabled for 10+ years before death (or 5 years if rated 100% from time of separation)</li>
+          <li style="margin-bottom:.5em;">A service member who died on active duty</li>
+        </ul>
+        <p>Apply with VA Form 21P-534. Get free help from a VSO — DAV, VFW, American Legion all do this work.</p>
+
+        <h3>Survivors Pension</h3>
+        <p>For low-income surviving spouses and unmarried children of deceased wartime veterans. Tax-free. Apply with VA Form 21P-534.</p>
+
+        <h3>CHAMPVA</h3>
+        <p>Healthcare for spouses and dependents of veterans rated permanently and totally disabled, or who died from a service-connected condition. <a href="https://www.va.gov/COMMUNITYCARE/programs/dependents/champva/" target="_blank" rel="noopener">CHAMPVA info</a>.</p>
+
+        <h3>Education benefits — Chapter 35 / DEA</h3>
+        <p>Up to 36 months of education benefits for spouses and dependents of veterans who died from a service-connected disability or are 100% disabled. <a href="https://www.va.gov/education/survivor-dependent-benefits/" target="_blank" rel="noopener">Apply for DEA</a>.</p>
+
+        <h3>Fry Scholarship</h3>
+        <p>For children and surviving spouses of service members who died in the line of duty after 9/11/2001. Up to 36 months of full Post-9/11 GI Bill benefits.</p>
+
+        <h3>Home loan eligibility</h3>
+        <p>Surviving spouses can use the deceased veteran's VA home loan benefit (without the funding fee) in many cases.</p>
+
+        <h3>Burial benefits</h3>
+        <p>VA pays for burial in a national cemetery, headstone, Presidential Memorial Certificate, and (for some) a burial allowance. <a href="https://www.va.gov/burials-memorials/" target="_blank" rel="noopener">Burials &amp; memorials</a>.</p>
+
+        <h3>SBP — Survivor Benefit Plan</h3>
+        <p>Separate from VA. A military retiree pension annuity for surviving spouse. If your veteran was retired, contact DFAS: 1-800-321-1080.</p>
+
+        <h2>Specific situations</h2>
+        <h3>Death by suicide</h3>
+        <p>You qualify for the same benefits any other surviving family does. Suicide is not disqualifying for survivor benefits.</p>
+        <p>TAPS has a dedicated <a href="https://www.taps.org/suicideloss/" target="_blank" rel="noopener">Suicide Loss program</a> — peer support specifically from other suicide-loss families.</p>
+
+        <h3>Death from PACT Act conditions</h3>
+        <p>If your veteran died from cancer, respiratory illness, hypertension, or other PACT Act presumptive conditions and served in a covered location — DIC is presumed service-connected even if they never had a claim approved while alive. File anyway.</p>
+
+        <h3>Camp Lejeune family deaths</h3>
+        <p>The Camp Lejeune Justice Act covers family members exposed 1953-1987, not just service members. Separate from DIC.</p>
+
+        <h2>Help filing</h2>
+        <p>Don't try to navigate this alone. The VSOs that help vets file claims help families file survivor claims too — for free.</p>
+        <div class="resource-grid">
+          <a href="tel:18009598277" class="resource-card featured">
+            <h3>TAPS — first call</h3>
+            <p>1-800-959-TAPS (8277). 24/7. Free. Decades of experience walking families through this exact moment.</p>
+            <span class="resource-card-cta">Call TAPS →</span>
+          </a>
+          <a href="https://www.dav.org/find-your-local-office/" target="_blank" rel="noopener" class="resource-card">
+            <h3>DAV — claims filing</h3>
+            <p>Free DIC and survivor pension claim filing.</p>
+            <span class="resource-card-cta">Find local office →</span>
+          </a>
+          <a href="https://www.vfw.org/assistance/va-claims-separation-benefits" target="_blank" rel="noopener" class="resource-card">
+            <h3>VFW — claims service</h3>
+            <p>Service officers experienced with survivor claims.</p>
+            <span class="resource-card-cta">VFW help →</span>
+          </a>
+          <a href="https://www.warriorsfund.org" target="_blank" rel="noopener" class="resource-card">
+            <h3>Warriors Fund</h3>
+            <p>Our parent organization — direct financial assistance during the transition.</p>
+            <span class="resource-card-cta">Apply for help →</span>
+          </a>
+        </div>
+
+        <p style="margin-top:var(--s-7);">
+          <a href="/crisis" class="btn btn-secondary">If you need crisis support →</a>
+        </p>
+      </article>
+    </div>`;
+
+  return new Response(shellPage({
+    title: 'Survivor Benefits Navigator — Veteran News',
+    description: 'For families who have lost a veteran or service member. DIC, Survivors Pension, CHAMPVA, DEA, Fry Scholarship, and where to call first.',
+    canonicalPath: '/survivor-benefits',
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+// ── States hub + state pages (placeholder data; populated from agent) ────
+const STATE_NAMES = {
+  AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'California',CO:'Colorado',
+  CT:'Connecticut',DE:'Delaware',FL:'Florida',GA:'Georgia',HI:'Hawaii',ID:'Idaho',
+  IL:'Illinois',IN:'Indiana',IA:'Iowa',KS:'Kansas',KY:'Kentucky',LA:'Louisiana',
+  ME:'Maine',MD:'Maryland',MA:'Massachusetts',MI:'Michigan',MN:'Minnesota',MS:'Mississippi',
+  MO:'Missouri',MT:'Montana',NE:'Nebraska',NV:'Nevada',NH:'New Hampshire',NJ:'New Jersey',
+  NM:'New Mexico',NY:'New York',NC:'North Carolina',ND:'North Dakota',OH:'Ohio',OK:'Oklahoma',
+  OR:'Oregon',PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',SD:'South Dakota',
+  TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',VA:'Virginia',WA:'Washington',
+  WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming',DC:'District of Columbia'
+};
+
+async function serveStatesIndex(env, url, request) {
+  const tiles = Object.entries(STATE_NAMES).map(([code, name]) => `
+    <a href="/state/${code.toLowerCase()}" class="state-tile">
+      <span class="state-tile-code">${code}</span>
+      <span class="state-tile-name">${escapeHtml(name)}</span>
+    </a>`).join('');
+
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <div class="eyebrow">By State</div>
+        <h1 class="page-title">Find your state's veteran resources.</h1>
+        <p class="page-lede">Every state has its own veteran department, its own benefits, its own programs on top of the federal VA. Here's the directory.</p>
+      </div>
+    </section>
+    <div class="container">
+      <div class="state-grid">${tiles}</div>
+
+      <div class="warning-box" style="margin-top:var(--s-9);">
+        <h3>Federal VA covers most</h3>
+        <p>Disability compensation, healthcare, GI Bill, home loans — all federal. Your state programs are <em>on top</em> of those, not instead. Always file your federal VA claim first via a VSO. Then layer state benefits.</p>
+      </div>
+    </div>`;
+
+  return new Response(shellPage({
+    title: 'Veteran Resources by State — Veteran News',
+    description: 'Find your state\'s veteran department, hotline, and standout state-specific benefits. All 50 states + DC.',
+    canonicalPath: '/states',
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=86400' } });
+}
+
+async function serveStatePage(env, url, request, code) {
+  const name = STATE_NAMES[code];
+  if (!name) return new Response('State not found', { status: 404 });
+
+  // STATES_DATA is populated from agent research; falls back to a generic skeleton
+  const data = (typeof STATES_DATA !== 'undefined' && STATES_DATA[code]) || null;
+
+  const standoutsHtml = data?.standouts?.length ? data.standouts.map(s => `
+    <div class="resource-card">
+      <h3>${escapeHtml(s.name)}</h3>
+      <p>${escapeHtml(s.desc || '')}</p>
+    </div>`).join('') : '';
+
+  const content = `
+    <section class="page-hero">
+      <div class="container-narrow">
+        <a href="/states" class="back-link">← All states</a>
+        <div class="eyebrow">${escapeHtml(code)} · State Resources</div>
+        <h1 class="page-title">${escapeHtml(name)}</h1>
+        ${data?.notes ? `<p class="page-lede">${escapeHtml(data.notes)}</p>` : '<p class="page-lede">Federal VA benefits cover most of what veterans receive — disability compensation, healthcare, GI Bill, home loans. State-specific benefits are layered on top.</p>'}
+      </div>
+    </section>
+    <div class="container-narrow">
+      ${data ? `
+        <div class="resource-block">
+          <div class="h-eyebrow">State Veterans Department</div>
+          <h2>${escapeHtml(data.deptName || (name + ' Department of Veterans Affairs'))}</h2>
+          <div class="resource-grid">
+            ${data.deptUrl ? `<a href="${escapeHtml(data.deptUrl)}" target="_blank" rel="noopener" class="resource-card featured"><h3>State Veterans Department</h3><p>${escapeHtml(data.deptName || '')}</p><span class="resource-card-cta">${escapeHtml(data.deptUrl)} →</span></a>` : ''}
+            ${data.phone ? `<a href="tel:${data.phone.replace(/[^0-9]/g, '')}" class="resource-card"><h3>State Hotline</h3><p>${escapeHtml(data.phone)}</p><span class="resource-card-cta">Call →</span></a>` : ''}
+          </div>
+        </div>
+        ${standoutsHtml ? `
+          <div class="resource-block">
+            <div class="h-eyebrow">Standout State Benefits</div>
+            <h2>What's unique to ${escapeHtml(name)}</h2>
+            <div class="resource-grid">${standoutsHtml}</div>
+          </div>` : ''}
+      ` : `
+        <div class="warning-box">
+          <p>Detailed state data for <strong>${escapeHtml(name)}</strong> is being added. In the meantime, the federal VA benefits below cover most of what veterans receive — and your state's veterans department is your best lead for state-specific programs.</p>
+          <p style="margin-top:var(--s-3);">A general search: <a href="https://www.google.com/search?q=${escapeHtml(name)}+department+of+veterans+affairs" target="_blank" rel="noopener">${escapeHtml(name)} Department of Veterans Affairs</a></p>
+        </div>`}
+
+      <div class="resource-block">
+        <div class="h-eyebrow">Federal VA (covers all states)</div>
+        <h2>Federal benefits to file first</h2>
+        <div class="resource-grid">
+          <a href="https://www.va.gov/disability/how-to-file-claim/" target="_blank" rel="noopener" class="resource-card">
+            <h3>Disability claim</h3>
+            <p>File via a free VSO. Don't pay anyone.</p>
+          </a>
+          <a href="https://www.va.gov/find-locations/" target="_blank" rel="noopener" class="resource-card">
+            <h3>Find a VA in ${escapeHtml(name)}</h3>
+            <p>Hospitals, clinics, vet centers near you.</p>
+          </a>
+          <a href="/claim-help" class="resource-card">
+            <h3>Claim help walkthrough</h3>
+            <p>Quick 2-minute eligibility check.</p>
+          </a>
+        </div>
+      </div>
+
+      <div class="crisis-cta">
+        <div class="crisis-cta-eyebrow">Veterans Crisis Line</div>
+        <h3>Free, confidential support — 24/7</h3>
+        <div class="crisis-cta-actions">
+          <a href="tel:988" class="btn btn-primary">Call 988 — Press 1</a>
+          <a href="sms:838255" class="btn btn-secondary">Text 838255</a>
+        </div>
+      </div>
+    </div>`;
+
+  return new Response(shellPage({
+    title: `${name} Veteran Resources — Veteran News`,
+    description: `Veteran resources, state department, hotline, and standout state-specific benefits for ${name}.`,
+    canonicalPath: `/state/${code.toLowerCase()}`,
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=86400' } });
+}
+
+// STATES_DATA — verified state-by-state veteran resources directory.
+// Source: each state's official .gov + NASDVA cross-reference.
+// Note: property tax thresholds in some states are indexed annually.
+const STATES_DATA = {
+  AL: { name: 'Alabama', deptName: 'Alabama Department of Veterans Affairs', deptUrl: 'https://va.alabama.gov', phone: '334-242-5077', standouts: [{ name: 'Property tax exemption (100% disabled)', desc: 'Full home exemption for permanently and totally disabled vets; vehicle license fees and property taxes also waived on VA-funded vehicles' }, { name: 'Alabama GI Dependent Scholarship', desc: 'Tuition and fees at state schools for spouses/children of vets rated 40%+ service-connected disabled' }, { name: 'No state tax on military retirement', desc: 'Military retired pay fully exempt from Alabama income tax' }], notes: 'Strong tax benefits and dependent education program; ADVA operates 62 county Veterans Service Offices.' },
+  AK: { name: 'Alaska', deptName: 'Alaska Office of Veterans Affairs', deptUrl: 'https://veterans.alaska.gov', phone: '907-428-6016', standouts: [{ name: 'Veteran Land Discount', desc: '25% discount on state residential or recreational land for qualifying veterans' }, { name: 'Property tax exemption', desc: 'First $150,000 of assessed value exempt for 50%+ disabled veterans on primary residence' }, { name: 'Permanent Fund Dividend (PFD) eligibility for deployed', desc: 'Service members deployed outside Alaska remain eligible for PFD' }], notes: 'Unique state-land discount and absentee-friendly residency rules for service members.' },
+  AZ: { name: 'Arizona', deptName: 'Arizona Department of Veterans\' Services', deptUrl: 'https://dvs.az.gov', phone: '602-255-3373', standouts: [{ name: 'Disabled Veteran Property Tax Exemption', desc: 'Up to ~$4,748 of assessed value exempt, scaled by VA disability percentage; full exemption with income limits' }, { name: 'Immediate in-state tuition residency', desc: 'Veterans and dependents using VA education benefits qualify for in-state tuition with no waiting period' }, { name: 'Military retirement pay tax exemption', desc: 'Military retired pay fully exempt from Arizona state income tax' }], notes: 'Strong tax climate plus instant residency for tuition.' },
+  AR: { name: 'Arkansas', deptName: 'Arkansas Department of Veterans Affairs', deptUrl: 'https://www.veterans.arkansas.gov', phone: '501-683-2382', standouts: [{ name: 'Property tax exemption (100% disabled)', desc: 'Full homestead and personal property tax exemption for 100% service-connected disabled vets, surviving spouses, and unmarried widows of KIA' }, { name: 'Free tuition for dependents', desc: 'Free tuition/fees at state-supported schools for dependents of KIA, MIA, POW, or 100% disabled vets' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Arkansas state income tax' }], notes: 'Headline benefit is the broad 100% disabled property tax exemption that includes personal property.' },
+  CA: { name: 'California', deptName: 'California Department of Veterans Affairs (CalVet)', deptUrl: 'https://www.calvet.ca.gov', phone: '800-952-5626', standouts: [{ name: 'CalVet Home Loans', desc: 'State-run direct home loan program with competitive rates and no PMI; funding fee waived for 10%+ disabled vets' }, { name: 'Disabled Veterans\' Property Tax Exemption', desc: '$100K basic / $150K low-income exemption on primary residence for 100% disabled vets (indexed annually)' }, { name: 'College Fee Waiver for Veteran Dependents', desc: 'Waives mandatory tuition/fees at any CSU, UC, or California Community College for eligible dependents' }], notes: 'CalVet is unusual in operating its own direct home-loan program.' },
+  CO: { name: 'Colorado', deptName: 'Colorado Division of Veterans Affairs', deptUrl: 'https://vets.colorado.gov', phone: '303-914-5832', standouts: [{ name: 'Disabled Veteran Property Tax Exemption', desc: '50% exemption on first $200,000 of actual value for 100% permanently disabled vets; expanded to "individual unemployability" rated vets in 2024' }, { name: 'Military retirement pay subtraction', desc: 'Up to $15,000–$20,000 of military retirement pay deductible from state income tax depending on age' }, { name: 'Tuition Assistance Program for Guard', desc: 'Up to 100% tuition at state schools for Colorado National Guard members' }], notes: 'CDVA directs the network of County Veterans Service Officers in every Colorado county.' },
+  CT: { name: 'Connecticut', deptName: 'Connecticut Department of Veterans Affairs', deptUrl: 'https://portal.ct.gov/dva', phone: '860-616-3685', standouts: [{ name: 'Veterans\' Property Tax Exemption', desc: 'Basic $1,000 assessed-value exemption for wartime vets; larger amounts for disabled vets and income-qualified applicants' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Connecticut state income tax' }, { name: 'Tuition waiver at state schools', desc: 'Full tuition waiver at Connecticut public colleges/universities for qualifying wartime veterans' }], notes: 'Free tuition at state colleges is a standout.' },
+  DE: { name: 'Delaware', deptName: 'Delaware Commission of Veterans Affairs', deptUrl: 'https://vets.delaware.gov', phone: '800-344-9900', standouts: [{ name: 'Disabled Veterans School Tax Credit', desc: '100% credit against non-vocational school district property tax for 100% service-connected disabled vets (3+ years DE residency)' }, { name: 'Educational Benefit for Children of Deceased Vets', desc: 'Tuition assistance at state schools for children of veterans who died in service or from service-connected causes' }, { name: 'Delaware Veterans Trust Fund', desc: 'Emergency grants for Delaware veterans facing financial crisis' }], notes: 'School tax credit is uniquely Delaware.' },
+  FL: { name: 'Florida', deptName: 'Florida Department of Veterans\' Affairs', deptUrl: 'https://www.floridavets.org', phone: '844-693-5838', standouts: [{ name: 'Homestead Property Tax Exemption (100% P&T)', desc: 'Full ad-valorem property tax exemption on homestead for 100% permanently and totally disabled vets; partial exemptions at lower ratings' }, { name: 'Congressman C.W. Bill Young Tuition Waiver', desc: 'Out-of-state tuition fees waived at Florida public colleges/universities for honorably discharged vets residing in FL' }, { name: 'No state income tax', desc: 'Florida has no state income tax, making military retirement and VA benefits effectively untaxed' }], notes: 'Florida Veterans Support Line (1-844-MyFLVet) is a state-run wellness/connect line.' },
+  GA: { name: 'Georgia', deptName: 'Georgia Department of Veterans Service', deptUrl: 'https://veterans.georgia.gov', phone: '404-656-2300', standouts: [{ name: 'Disabled Veteran Homestead Exemption', desc: 'Up to ~$117,014 (federally-indexed) homestead exemption for 100% disabled vets' }, { name: 'Military retirement income exemption', desc: 'Up to $17,500 (or $35,000 with earned income) of military retired pay exempt from state income tax for vets under 62; full exemption at 65+' }, { name: 'Georgia HERO Scholarship', desc: 'Up to $8,000 in scholarships for Georgia National Guard and Reserve members who served in combat zones' }], notes: 'GDVS operates two state veterans homes and seven cemeteries.' },
+  HI: { name: 'Hawaii', deptName: 'Hawaii Office of Veterans Services', deptUrl: 'https://dod.hawaii.gov/ovs', phone: '808-433-0420', standouts: [{ name: 'Totally Disabled Veteran Property Tax Exemption', desc: 'Home exempt from all real property tax except minimum tax (county-administered)' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Hawaii state income tax' }, { name: 'Special vehicle license plates / fee waivers', desc: 'Free vehicle registration and special plates for disabled veterans, POWs, and Medal of Honor recipients' }], notes: 'Property tax administration is at the county level in Hawaii.' },
+  ID: { name: 'Idaho', deptName: 'Idaho Division of Veterans Services', deptUrl: 'https://veterans.idaho.gov', phone: '208-577-2310', standouts: [{ name: 'Property Tax Reduction for 100% Disabled Vets', desc: 'Up to $1,500 property tax reduction on primary residence for 100% service-connected disabled vets, regardless of income' }, { name: 'Idaho Veterans Recognition Income Tax Deduction', desc: 'Special income tax deductions for veterans, including grocery credit refund for disabled vets' }, { name: 'In-state tuition for vets', desc: 'Veterans and qualifying dependents using GI Bill receive immediate in-state residency for tuition' }], notes: 'IDVS runs three state veterans homes (Boise, Lewiston, Pocatello).' },
+  IL: { name: 'Illinois', deptName: 'Illinois Department of Veterans Affairs', deptUrl: 'https://veterans.illinois.gov', phone: '800-437-9824', standouts: [{ name: 'Standard Homestead Exemption for Veterans with Disabilities', desc: 'Tiered property tax EAV reduction: $2,500 (30–49%), $5,000 (50–69%), full exemption (70%+ disability)' }, { name: 'Illinois Veteran Grant (IVG)', desc: 'Pays tuition and certain fees at Illinois public universities/community colleges for eligible vets' }, { name: 'MIA/POW Scholarship', desc: 'Tuition/fee scholarship for dependents of veterans who are POW, MIA, KIA, or 100% disabled' }], notes: 'IDVA also runs Veterans Homes in Anna, LaSalle, Manteno, Quincy, and Chicago.' },
+  IN: { name: 'Indiana', deptName: 'Indiana Department of Veterans Affairs', deptUrl: 'https://www.in.gov/dva', phone: '317-232-3910', standouts: [{ name: 'Tuition and Fee Exemption for Children of Disabled Vets', desc: '100% tuition/fees at Indiana public colleges for children of disabled or deceased veterans (up to 124 credit hours)' }, { name: 'Indiana Purple Heart Recipient Program', desc: 'Covers 100% of tuition and regularly assessed fees at state schools for Hoosier Purple Heart recipients' }, { name: 'Military Family Relief Fund', desc: 'Grants up to $2,500 for Indiana service members and recently separated vets facing financial hardship' }], notes: 'Tuition benefits for children of disabled veterans are among the most generous in the country.' },
+  IA: { name: 'Iowa', deptName: 'Iowa Department of Veterans Affairs', deptUrl: 'https://va.iowa.gov', phone: '515-252-4698', standouts: [{ name: 'Iowa Military Property Tax Exemption', desc: 'Reduces taxable value of homestead by $1,852 for qualifying veterans; 100% disabled vets fully exempt' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Iowa state income tax' }, { name: 'Iowa Veterans Trust Fund', desc: 'Emergency grants up to $5,000 for veterans facing financial hardship' }], notes: 'Iowa Veterans Trust Fund offers wide-ranging emergency assistance categories.' },
+  KS: { name: 'Kansas', deptName: 'Kansas Office of Veterans Services', deptUrl: 'https://www.kovs.ks.gov', phone: '785-296-3976', standouts: [{ name: 'Homestead Refund for Disabled Vets', desc: 'Up to $700 property tax refund for 50%+ disabled veterans regardless of income' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Kansas state income tax' }, { name: 'Kansas Veterans Claims Assistance Program', desc: 'KCVAO veterans service representatives file federal/state claims free of charge' }], notes: 'State agency was renamed Kansas Office of Veterans Services (KOVS).' },
+  KY: { name: 'Kentucky', deptName: 'Kentucky Department of Veterans Affairs', deptUrl: 'https://veterans.ky.gov', phone: '502-564-9203', standouts: [{ name: 'Kentucky Tuition Waiver', desc: 'Full tuition waiver at KY public colleges, universities, and vocational schools for children, stepchildren, spouses, and unremarried widows of eligible KY veterans' }, { name: 'Disabled Veteran Property Tax Homestead Exemption', desc: 'Homestead exemption (~$49,100, indexed) on assessed value for totally disabled vets' }, { name: 'Military retirement income exemption', desc: 'Up to $31,110 of military retired pay exempt from KY state income tax' }], notes: 'KDVA operates four veterans nursing facilities and three state veterans cemeteries.' },
+  LA: { name: 'Louisiana', deptName: 'Louisiana Department of Veterans Affairs', deptUrl: 'https://www.vetaffairs.la.gov', phone: '225-219-5000', standouts: [{ name: 'Disabled Veterans Homestead Exemption', desc: 'Property tax homestead exemption increases to $150,000 (50–69% disabled), $250,000 (70–99%), or full exemption (100%)' }, { name: 'Title 29 Tuition Exemption', desc: 'In-state tuition exemption at LA public colleges for surviving spouses and dependents of vets rated 90%+ disabled or KIA' }, { name: 'Military Family Assistance Fund', desc: 'Grants up to $10,000 for Louisiana service members and families during deployment hardship' }], notes: 'LDVA operates 74 service offices statewide.' },
+  ME: { name: 'Maine', deptName: 'Maine Bureau of Veterans\' Services', deptUrl: 'https://www.maine.gov/veterans', phone: '207-287-7020', standouts: [{ name: 'Veteran Property Tax Exemption', desc: '$6,000 exemption from property valuation for wartime veterans 62+ or disabled; $50,000 for paraplegic vets with VA-funded specially adapted housing' }, { name: 'Veterans Dependents Educational Benefits', desc: 'Tuition waiver at Maine public universities, community colleges, and Maine Maritime Academy for spouses/children of 100% disabled or KIA vets' }, { name: 'Lifetime hunting/fishing license & state park pass', desc: 'Free for Maine resident vets rated 50%+ disabled' }], notes: 'Comprehensive education waiver and recreation passes.' },
+  MD: { name: 'Maryland', deptName: 'Maryland Department of Veterans & Military Families', deptUrl: 'https://veterans.maryland.gov', phone: '800-446-4926', standouts: [{ name: '100% Disabled Veteran Property Tax Exemption', desc: 'Full exemption from real property taxes on principal residence for 100% permanently/totally disabled vets and qualifying surviving spouses' }, { name: 'Edward T. Conroy Memorial Scholarship', desc: 'Tuition and mandatory fees (~$13K+/yr) at Maryland public colleges for vets with 25%+ disability and qualifying dependents' }, { name: 'Military retirement income subtraction', desc: 'Up to $20,000 (age 55+) or $12,500 (under 55) of military retired pay subtractable from MD income tax' }], notes: 'Department was renamed in 2024.' },
+  MA: { name: 'Massachusetts', deptName: 'Massachusetts Executive Office of Veterans Services', deptUrl: 'https://www.mass.gov/orgs/executive-office-of-veterans-services', phone: '617-210-5480', standouts: [{ name: 'Chapter 115 Benefits', desc: 'Means-tested cash assistance + reimbursement for medical expenses for low-income MA veterans and dependents — uniquely robust state safety net' }, { name: 'Annuity for 100% Disabled Vets / Gold Star families', desc: 'Annual annuity for 100% disabled vets, paraplegic vets, Gold Star parents, and unremarried surviving spouses' }, { name: 'Property tax exemptions (Clauses 22, 22A–F)', desc: 'Tiered $400–$1,500+ property tax abatements; full exemption for paraplegic and 100% blind disability ratings' }], notes: 'Chapter 115 is the most comprehensive state-funded means-tested veteran benefit in the U.S.' },
+  MI: { name: 'Michigan', deptName: 'Michigan Veterans Affairs Agency', deptUrl: 'https://www.michigan.gov/mvaa', phone: '800-642-4838', standouts: [{ name: '100% Disabled Veteran Property Tax Exemption', desc: 'Full exemption from real property taxes on homestead for 100% permanently/totally disabled vets and unremarried surviving spouses' }, { name: 'Children of Veterans Tuition Grant', desc: 'Up to $2,800/year toward tuition at Michigan public colleges for children (under 26) of totally disabled, KIA, or POW/MIA vets' }, { name: 'MVAA Emergency Resource Assistance', desc: 'Emergency grants for utilities, vehicle/home repairs, medical bills, and other urgent needs' }], notes: 'MVAA operates the Michigan Veteran Resource Service Center (800-MICH-VET).' },
+  MN: { name: 'Minnesota', deptName: 'Minnesota Department of Veterans Affairs', deptUrl: 'https://mn.gov/mdva', phone: '888-546-5838', standouts: [{ name: 'Minnesota GI Bill', desc: 'Up to $15,000 lifetime education benefit for post-9/11 MN vets, current service members, and eligible spouses/children — usable on top of federal GI Bill' }, { name: 'Disabled Veteran Homestead Market Value Exclusion', desc: 'Exclusion of $150,000 (70%+ disabled) or $300,000 (100% T&P) from homestead market value' }, { name: 'Surviving Spouse / Dependent Tuition Reimbursement', desc: 'Tuition reimbursement up to $750/semester for spouses and children of deceased or severely disabled MN vets' }], notes: 'Minnesota GI Bill stacks on the federal GI Bill — uncommon and highly used.' },
+  MS: { name: 'Mississippi', deptName: 'Mississippi Veterans Affairs Board', deptUrl: 'https://www.msva.ms.gov', phone: '601-576-4850', standouts: [{ name: '100% Disabled Veteran Homestead Exemption', desc: 'Full ad-valorem property tax exemption on homestead for 100% service-connected disabled vets and unremarried surviving spouses' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Mississippi state income tax' }, { name: 'State Veterans Homes', desc: 'Four state-run veterans homes (Collins, Jackson, Kosciusko, Oxford) at reduced rates' }], notes: 'Mississippi VA Board operates four veterans homes.' },
+  MO: { name: 'Missouri', deptName: 'Missouri Veterans Commission', deptUrl: 'https://mvc.dps.mo.gov', phone: '573-751-3779', standouts: [{ name: '100% Disabled POW Property Tax Credit', desc: 'Property tax credit up to $1,100 for former POWs with 100% service-connected disability' }, { name: 'Wartime Veteran\'s Survivor Grant', desc: 'Tuition assistance up to $4,800/year at MO public colleges for children/spouses of vets KIA, MIA, or 80%+ disabled from post-9/11 combat' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Missouri state income tax' }], notes: 'MVC operates seven state veterans homes — one of the largest networks in the country.' },
+  MT: { name: 'Montana', deptName: 'Montana Veterans Affairs Division', deptUrl: 'https://dma.mt.gov/mvad', phone: '406-324-3740', standouts: [{ name: 'Montana Disabled Veteran Property Tax Assistance', desc: 'Income-based property tax reduction (50%–100%) for 100% service-connected disabled vets and unremarried surviving spouses' }, { name: 'Military retirement income exemption', desc: 'Military retired pay phased to full exemption from Montana state income tax' }, { name: 'In-state tuition for vets', desc: 'Honorably discharged vets and qualifying dependents receive immediate in-state tuition at MUS schools' }], notes: 'MVAD operates nine field service offices and three state veterans homes.' },
+  NE: { name: 'Nebraska', deptName: 'Nebraska Department of Veterans\' Affairs', deptUrl: 'https://veterans.nebraska.gov', phone: '402-420-4021', standouts: [{ name: 'Homestead Exemption for Disabled Vets', desc: 'Income-based homestead exemption for 100% service-connected disabled vets (and qualifying paraplegic/specially adapted housing recipients regardless of income)' }, { name: 'Nebraska Waiver of Tuition for Dependents', desc: '100% tuition waiver at Nebraska state colleges/universities for children and spouses of certain disabled, deceased, or POW/MIA vets' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Nebraska state income tax (effective 2022)' }], notes: 'Tuition waiver for dependents is uncapped (full tuition) at NE state schools.' },
+  NV: { name: 'Nevada', deptName: 'Nevada Department of Veterans Services', deptUrl: 'https://veterans.nv.gov', phone: '775-688-1653', standouts: [{ name: 'Disabled Veteran Property Tax Exemption', desc: 'Tiered assessed-value exemption ($14,400–$28,800+, indexed) based on disability rating; can be applied to vehicle privilege tax as alternative' }, { name: 'No state income tax', desc: 'Nevada has no state income tax — military retirement, pensions, and VA benefits all untaxed' }, { name: 'Veterans Advocacy and Support Team (VAST)', desc: 'Free statewide claims and benefits assistance through state-employed Veterans Service Officers' }], notes: 'Property tax exemption is portable to vehicle governmental services tax — uniquely flexible.' },
+  NH: { name: 'New Hampshire', deptName: 'New Hampshire State Office of Veterans Services', deptUrl: 'https://www.nhveterans.nh.gov', phone: '800-622-9230', standouts: [{ name: 'Standard Veterans\' Tax Credit', desc: '$50 (up to $750 by local option) credit on residential property tax for qualifying wartime veterans' }, { name: 'All Veterans\' Property Tax Credit', desc: 'Local-option credit available to all veterans (not just wartime) at municipality\'s discretion' }, { name: 'No state income tax on wages/retirement', desc: 'NH has no general income tax; interest/dividends tax is also being phased out' }], notes: 'Adopted-locally property tax credits vary by town.' },
+  NJ: { name: 'New Jersey', deptName: 'New Jersey Department of Military and Veterans Affairs', deptUrl: 'https://www.nj.gov/military', phone: '888-865-8387', standouts: [{ name: '100% Disabled Veteran Property Tax Exemption', desc: 'Full property tax exemption on principal residence for 100% permanently/totally disabled vets and surviving spouses' }, { name: 'NJ Veterans Income Tax Exemption', desc: '$6,000 additional state income tax exemption for honorably discharged veterans' }, { name: 'NJ Vet2Vet Helpline', desc: 'State-run 24/7 peer-support helpline at 1-866-VETS-NJ-4' }], notes: 'NJ Vet2Vet is a notable state-run, 24/7 peer-support phone line beyond 988.' },
+  NM: { name: 'New Mexico', deptName: 'New Mexico Department of Veterans Services', deptUrl: 'https://www.nmdvs.org', phone: '866-433-8387', standouts: [{ name: 'Veterans\' Property Tax Exemption', desc: '$4,000 reduction in taxable property value for honorably discharged vets; full exemption for 100% service-connected disabled vets' }, { name: 'Vietnam Veterans Scholarship', desc: 'Tuition, books, and fees at NM public schools for NM residents who served in Vietnam combat zone' }, { name: 'Military retirement income exemption', desc: 'Up to $30,000 of military retired pay exempt from NM state income tax (phased increase)' }], notes: 'NMDVS operates 16 field offices statewide.' },
+  NY: { name: 'New York', deptName: 'New York State Department of Veterans\' Services', deptUrl: 'https://veterans.ny.gov', phone: '888-838-7697', standouts: [{ name: 'Alternative Veterans Property Tax Exemption', desc: '15% assessed-value reduction for wartime vets, additional 10% for combat zone, plus disability-based reduction (caps set locally)' }, { name: 'Blind Annuity Program', desc: '$1,395+/year (state-funded) annuity to legally blind NYS wartime vets and unremarried surviving spouses, regardless of service connection' }, { name: 'Veterans Tuition Awards (VTA)', desc: 'Up to full SUNY tuition for eligible combat veterans pursuing undergraduate or vocational study' }], notes: 'Blind Annuity is unique in the country.' },
+  NC: { name: 'North Carolina', deptName: 'North Carolina Department of Military & Veterans Affairs', deptUrl: 'https://www.milvets.nc.gov', phone: '844-624-8387', standouts: [{ name: 'Disabled Veteran Property Tax Homestead Exclusion', desc: 'Excludes first $45,000 of appraised value of permanent residence from property taxes for 100% service-connected disabled vets and unremarried surviving spouses' }, { name: 'NC Scholarship for Children of Wartime Vets', desc: 'Tuition assistance at NC public schools for children of disabled, deceased, combat, or POW/MIA vets' }, { name: 'Military retirement income exemption', desc: 'Military retired pay (with 20+ years or medical retirement) fully exempt from NC state income tax' }], notes: 'Hotline 844-NC4-VETS connects to state benefits specialists in 12 regional offices.' },
+  ND: { name: 'North Dakota', deptName: 'North Dakota Department of Veterans Affairs', deptUrl: 'https://www.veterans.nd.gov', phone: '866-634-8387', standouts: [{ name: 'Disabled Veterans Property Tax Credit', desc: 'Property tax credit on homestead for 50%+ service-connected disabled vets, scaled to disability rating' }, { name: 'Dependent Tuition Waiver', desc: 'Free tuition at ND public colleges for spouses/children of vets KIA, MIA, POW, or 100% disabled' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from ND state income tax (effective 2019)' }], notes: 'NDDVA operates the ND Veterans Home in Lisbon.' },
+  OH: { name: 'Ohio', deptName: 'Ohio Department of Veterans Services', deptUrl: 'https://dvs.ohio.gov', phone: '614-644-0898', standouts: [{ name: 'Ohio Homestead Exemption for Disabled Vets', desc: 'Reduces taxable value of homestead by $50,000 for 100% service-connected disabled vets, regardless of income' }, { name: 'Ohio War Orphans Scholarship', desc: 'Tuition assistance at OH public colleges for children of deceased or severely disabled vets — up to 5 academic years' }, { name: 'Ohio National Guard Scholarship Program (ONGSP)', desc: '100% tuition at state-funded public colleges for current Ohio National Guard members' }], notes: 'Ohio also offers a "GI Promise" allowing nonresident vets/dependents to skip the residency requirement for in-state tuition.' },
+  OK: { name: 'Oklahoma', deptName: 'Oklahoma Department of Veterans Affairs', deptUrl: 'https://oklahoma.gov/veterans.html', phone: '888-655-2838', standouts: [{ name: '100% Disabled Veteran Sales Tax Exemption', desc: 'Annual sales tax exemption up to $25,000 for 100% service-connected disabled vets ($1,000 for unremarried surviving spouses); requires registration in OK Veterans Registry' }, { name: 'Disabled Veteran Property Tax Exemption', desc: 'Full homestead property tax exemption for 100% service-connected disabled vets and unremarried surviving spouses' }, { name: 'Military retirement income exemption', desc: '100% of military retired pay exempt from OK state income tax (effective 2022)' }], notes: 'Sales tax exemption with annual cap is unusual and frequently used at point of sale.' },
+  OR: { name: 'Oregon', deptName: 'Oregon Department of Veterans\' Affairs', deptUrl: 'https://www.oregon.gov/odva', phone: '800-692-9666', standouts: [{ name: 'ODVA Home Loan Program', desc: 'State-run direct home loan program (since 1945) with competitive rates and no PMI; over $10B lent to Oregon vets' }, { name: 'Disabled Veteran Property Tax Exemption', desc: 'Reduces assessed value of primary residence for 40%+ disabled vets (~$30,000+ exemption, indexed annually)' }, { name: 'Oregon Veteran Educational Aid', desc: 'Up to $150/month (full-time) for up to 36 months for vets attending Oregon schools who used <12 months of federal GI Bill' }], notes: 'Oregon and California are the only two states still operating their own direct VA-style home loan programs.' },
+  PA: { name: 'Pennsylvania', deptName: 'Pennsylvania Department of Military and Veterans Affairs', deptUrl: 'https://www.pa.gov/agencies/dmva', phone: '800-547-2838', standouts: [{ name: 'Disabled Veterans\' Real Estate Tax Exemption', desc: 'Full property tax exemption on principal residence for 100% disabled (or paraplegic, blind, or loss of two limbs) wartime vets meeting financial-need criteria' }, { name: 'PA Educational Gratuity Program', desc: '$500/term (up to 4 years) for children of honorably discharged vets with service-connected disabilities or KIA wartime vets' }, { name: 'Veterans\' Trust Fund Grants', desc: 'Grants for VSOs and county directors; supports homelessness, behavioral health, and emergency needs' }], notes: '5th largest veteran population; PA VETConnect resource navigation platform statewide.' },
+  RI: { name: 'Rhode Island', deptName: 'Rhode Island Office of Veterans Services', deptUrl: 'https://vets.ri.gov', phone: '401-921-2119', standouts: [{ name: 'Veterans\' Property Tax Exemption', desc: 'Local-option property tax exemption for honorably discharged veterans; enhanced exemptions for disabled vets, Gold Star families, and POWs (varies by city/town)' }, { name: 'Military retirement income exemption', desc: 'Military retirement pay fully exempt from RI state income tax (effective 2023)' }, { name: 'Free tuition at CCRI/RIC/URI', desc: 'Tuition waiver at RI public colleges for children of vets KIA or MIA' }], notes: 'RI Veterans Home in Bristol — recently rebuilt.' },
+  SC: { name: 'South Carolina', deptName: 'South Carolina Department of Veterans\' Affairs', deptUrl: 'https://scdva.sc.gov', phone: '803-734-0200', standouts: [{ name: 'Total Disability Property Tax Exemption', desc: 'Full property tax exemption on home (up to 5 acres) and up to 2 vehicles for total/permanent service-connected disabled vets; retroactive up to 2 years' }, { name: 'Military retirement income exemption', desc: '100% of military retired pay exempt from SC state income tax with no earned-income cap (effective 2022)' }, { name: 'Free Tuition for Children of Wartime Vets', desc: 'Tuition exemption at SC public colleges for children of certain disabled or KIA wartime vets' }], notes: 'SCDVA elevated to cabinet-level state agency in 2019.' },
+  SD: { name: 'South Dakota', deptName: 'South Dakota Department of Veterans Affairs', deptUrl: 'https://vetaffairs.sd.gov', phone: '605-773-3269', standouts: [{ name: 'Property Tax Exemption for Disabled Vets', desc: 'Up to $200,000 of full and true value of dwelling exempt for 100% permanently/totally service-connected disabled vets and unremarried surviving spouses' }, { name: 'Free tuition for dependents', desc: 'Free tuition at state-supported universities and technical colleges for spouses and dependents of qualifying vets' }, { name: 'No state income tax', desc: 'South Dakota has no state income tax — all retirement and VA pay untaxed' }], notes: 'SDDVA operates the SD Veterans Home in Hot Springs.' },
+  TN: { name: 'Tennessee', deptName: 'Tennessee Department of Veterans Services', deptUrl: 'https://www.tn.gov/veteran', phone: '615-741-2931', standouts: [{ name: 'Property Tax Relief for Disabled Vets', desc: 'Property tax relief on first $175,000 of market value for 100% service-connected disabled (or P&T) vets and unremarried surviving spouses' }, { name: 'No state income tax on wages', desc: 'Tennessee has no general state income tax — military retirement and VA benefits effectively untaxed' }, { name: 'Helping Heroes Grant', desc: 'Up to $1,000/semester at TN public schools for vets and certain reservists who served on active duty since 9/11' }], notes: 'TDVS operates four state veterans homes and Veterans Cemeteries.' },
+  TX: { name: 'Texas', deptName: 'Texas Veterans Commission', deptUrl: 'https://www.tvc.texas.gov', phone: '800-252-8387', standouts: [{ name: 'Hazlewood Act', desc: 'Up to 150 credit hours of tuition and most fees waived at TX public colleges/universities; "Legacy" provision allows transfer of unused hours to a child' }, { name: '100% Disabled Veteran Homestead Exemption', desc: 'Full property tax exemption on residence homestead for 100% service-connected disabled vets and qualifying surviving spouses (regardless of home value)' }, { name: 'Veterans Land Board (VLB) Loan Programs', desc: 'Below-market-rate state loans for land, home purchases, and home improvements administered by the Texas General Land Office' }], notes: 'Hazlewood + Legacy is one of the most generous education benefits in the nation.' },
+  UT: { name: 'Utah', deptName: 'Utah Department of Veterans and Military Affairs', deptUrl: 'https://veterans.utah.gov', phone: '801-326-2372', standouts: [{ name: 'Veterans Property Tax Abatement', desc: 'Tax abatement on principal residence/personal property scaled to disability rating, up to $479,504+ of taxable value (indexed) for 100% disabled vets' }, { name: 'Scott B. Lundell Military Survivors Scholarship', desc: 'Full tuition waiver at UT public schools for surviving dependents of service members who died in line of duty post-9/11' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Utah state income tax (effective 2021)' }], notes: 'UDVMA operates four state veterans homes.' },
+  VT: { name: 'Vermont', deptName: 'Vermont Office of Veterans Affairs', deptUrl: 'https://veterans.vermont.gov', phone: '888-666-9844', standouts: [{ name: 'Veterans Property Tax Exemption', desc: '$10,000 (local option up to $40,000) of appraised value exempt for wartime vets receiving VA disability/pension or 50%+ disabled' }, { name: 'Vermont Veteran Assistance Fund', desc: 'One-time emergency grants up to $500 for low-income Vermont vets in financial crisis (housing, utilities)' }, { name: 'Military retirement income exemption', desc: 'Up to $10,000 of military retired pay exempt from VT state income tax (income-tested)' }], notes: 'OVA operates Vermont Veterans\' Home in Bennington.' },
+  VA: { name: 'Virginia', deptName: 'Virginia Department of Veterans Services', deptUrl: 'https://www.dvs.virginia.gov', phone: '804-786-0286', standouts: [{ name: '100% Disabled Veteran Real Estate Tax Exemption', desc: 'Full real estate tax exemption on principal residence for 100% permanent/total service-connected disabled vets and surviving spouses' }, { name: 'Virginia Military Survivors and Dependents Education Program', desc: 'Tuition and mandatory fee waiver (up to 8 semesters) at VA public colleges/universities for spouses/children of vets 90%+ disabled, KIA, MIA, or POW' }, { name: 'Military retirement income subtraction', desc: 'Up to $40,000 (phased to full) of military retired pay subtractable from VA income tax for vets 55+' }], notes: 'DVS operates 38 benefit service offices and four Veterans Care Centers.' },
+  WA: { name: 'Washington', deptName: 'Washington State Department of Veterans Affairs', deptUrl: 'https://www.dva.wa.gov', phone: '800-562-2308', standouts: [{ name: 'Property Tax Exemption for Disabled Vets', desc: 'Income-based property tax exemption for 80%+ service-connected disabled vets on primary residence' }, { name: 'No state income tax', desc: 'Washington has no state income tax — military retirement and VA benefits effectively untaxed' }, { name: 'Veterans Innovations Program (VIP)', desc: 'Emergency financial assistance grants for eligible WA veterans in crisis (utilities, mortgage, etc.)' }], notes: 'WDVA operates four state veterans homes.' },
+  WV: { name: 'West Virginia', deptName: 'West Virginia Department of Veterans Assistance', deptUrl: 'https://veterans.wv.gov', phone: '866-445-8491', standouts: [{ name: '100% Disabled Veteran Property Tax Homestead Exemption', desc: 'Homestead exemption on first $20,000 of assessed value (stackable on senior exemption) for 100% disabled vets' }, { name: 'WV Veterans Re-Education Assistance', desc: 'Up to $500/semester for vets pursuing tuition, professional licensure tests, or training materials' }, { name: 'Military retirement income exemption', desc: 'Up to $20,000 of military retired pay exempt from WV state income tax' }], notes: 'WVDVA operates 16 service offices statewide.' },
+  WI: { name: 'Wisconsin', deptName: 'Wisconsin Department of Veterans Affairs', deptUrl: 'https://dva.wi.gov', phone: '800-947-8387', standouts: [{ name: 'Wisconsin GI Bill', desc: 'Full tuition and segregated-fee remission at any UW System or WTCS school for up to 8 semesters / 128 credits — for eligible vets, spouses, and children' }, { name: 'WI Veterans & Surviving Spouses Property Tax Credit', desc: 'Refundable income tax credit equal to property taxes paid on primary residence for 100% disabled vets and unremarried surviving spouses' }, { name: 'Military retirement income exemption', desc: 'Military retired pay fully exempt from Wisconsin state income tax' }], notes: 'WDVA operates three state veterans homes.' },
+  WY: { name: 'Wyoming', deptName: 'Wyoming Veterans Commission', deptUrl: 'https://www.wyomilitary.wyo.gov/veterans', phone: '800-833-5987', standouts: [{ name: 'Veterans Property Tax Exemption', desc: '$3,000 (assessed value) property tax exemption on primary residence (or vehicle license fees) for honorably discharged wartime vets and disabled vets' }, { name: 'No state income tax', desc: 'Wyoming has no state income tax — military retirement and VA benefits all untaxed' }, { name: 'Free hunting/fishing licenses for disabled vets', desc: 'Free Wyoming hunting and fishing licenses for resident veterans rated 50%+ service-connected disabled' }], notes: 'Smallest population of any state but well-resourced per-capita.' },
+  DC: { name: 'District of Columbia', deptName: 'DC Mayor\'s Office of Veterans Affairs', deptUrl: 'https://communityaffairs.dc.gov/mova', phone: '202-724-5454', standouts: [{ name: 'VetsRide Program', desc: 'Free, on-demand shared-ride transportation for DC veterans for medical, employment, and housing trips' }, { name: 'DC Veteran Hiring Preference', desc: 'Hiring preference for DC government jobs for veterans and certain spouses' }, { name: 'District Veteran Service Officers', desc: 'MOVA District VSOs provide free claims assistance for federal VA benefits' }], notes: 'DC is unique in not having state-level property/income tax breaks comparable to states.' }
+};
