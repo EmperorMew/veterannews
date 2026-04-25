@@ -11,16 +11,131 @@ const readProgress = $('read-progress');
 document.addEventListener('DOMContentLoaded', () => {
   setupMobileNav();
   setupReadProgress();
+  initReadingMode();
+  initStickyActions();
   // If SSR rendered the article, wire actions and load related
   const ssr = container && container.querySelector('.story-title');
   if (ssr) {
     wireActions();
     initAudioReader();
+    initReadingToggle();
     loadRelatedFromDOM();
     return;
   }
   loadStory();
 });
+
+// Reading-mode font-size toggle — persisted in localStorage
+const READ_KEY = 'vn:readSize:v1';
+function initReadingMode() {
+  const saved = localStorage.getItem(READ_KEY);
+  if (saved === 'sm') document.body.classList.add('reading-sm');
+  else if (saved === 'lg') document.body.classList.add('reading-lg');
+}
+function setReadingSize(size) {
+  document.body.classList.remove('reading-sm', 'reading-lg');
+  if (size === 'sm') document.body.classList.add('reading-sm');
+  else if (size === 'lg') document.body.classList.add('reading-lg');
+  localStorage.setItem(READ_KEY, size);
+}
+function initReadingToggle() {
+  // Inject the Aa toggle right after .story-actions
+  const actions = document.querySelector('.story-actions');
+  if (!actions || document.querySelector('.reading-toggle')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'reading-toggle';
+  wrap.setAttribute('role', 'group');
+  wrap.setAttribute('aria-label', 'Reading text size');
+  wrap.innerHTML = `
+    <button data-size="sm" aria-label="Smaller text">A</button>
+    <button data-size="md" aria-label="Default text">A</button>
+    <button data-size="lg" aria-label="Larger text">A</button>
+  `;
+  actions.appendChild(wrap);
+  const current = localStorage.getItem(READ_KEY) || 'md';
+  wrap.querySelector(`[data-size="${current}"]`)?.classList.add('active');
+  wrap.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    wrap.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    setReadingSize(btn.dataset.size);
+  });
+}
+
+// Sticky bottom action rail on story pages (mobile only)
+function initStickyActions() {
+  const mq = window.matchMedia('(max-width: 799px)');
+  if (!mq.matches) return;
+  if (!container) return;
+  if (document.getElementById('article-actions-sticky')) return;
+
+  const bar = document.createElement('div');
+  bar.id = 'article-actions-sticky';
+  bar.className = 'article-actions-sticky';
+  bar.innerHTML = `
+    <button class="aas-btn" id="aas-share" aria-label="Share">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      <span>Share</span>
+    </button>
+    <button class="aas-btn" id="aas-save" aria-label="Save">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+      <span>Save</span>
+    </button>
+    <button class="aas-btn" id="aas-listen" aria-label="Listen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      <span>Listen</span>
+    </button>
+    <button class="aas-btn" id="aas-text" aria-label="Text size">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+      <span>Text size</span>
+    </button>
+  `;
+  document.body.appendChild(bar);
+
+  // Reveal bar after first scroll into article body
+  const reveal = () => {
+    if (window.scrollY > 200) bar.classList.add('show');
+    else bar.classList.remove('show');
+  };
+  window.addEventListener('scroll', reveal, { passive: true });
+  reveal();
+
+  // Wire actions
+  document.getElementById('aas-share').addEventListener('click', async () => {
+    const data = { title: document.title, url: location.href };
+    if (navigator.share) try { await navigator.share(data); } catch {}
+    else try { await navigator.clipboard.writeText(location.href); window.VN?.showToast?.('Link copied'); } catch {}
+  });
+  document.getElementById('aas-save').addEventListener('click', () => {
+    const titleEl = document.querySelector('.story-title');
+    const tagEl = document.querySelector('.story-tag');
+    const slug = location.pathname.replace('/news/', '').replace(/\/$/, '');
+    const article = {
+      slug,
+      title: titleEl?.textContent || document.title,
+      source: document.querySelector('.story-byline strong')?.textContent || '',
+      category: tagEl?.textContent?.toLowerCase() || '',
+      image: document.querySelector('.story-hero img')?.src || null
+    };
+    const saved = window.VN?.toggleSaved?.(article);
+    document.getElementById('aas-save').classList.toggle('active', !!saved);
+    window.VN?.showToast?.(saved ? 'Saved for later' : 'Removed from saved');
+  });
+  document.getElementById('aas-listen').addEventListener('click', () => {
+    document.querySelector('.listen-btn')?.click();
+  });
+  document.getElementById('aas-text').addEventListener('click', () => {
+    document.querySelector('.reading-toggle')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.querySelector('.reading-toggle')?.animate(
+      [{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }],
+      { duration: 400 }
+    );
+  });
+  // Initialize Save state
+  const slug = location.pathname.replace('/news/', '').replace(/\/$/, '');
+  if (window.VN?.isSaved?.(slug)) document.getElementById('aas-save').classList.add('active');
+}
 
 // ─── Audio reader (browser TTS) ────────────────────────────────────────────
 // Critical accessibility for veterans with TBI, visual impairment, or fatigue.

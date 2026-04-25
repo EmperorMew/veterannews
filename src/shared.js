@@ -19,8 +19,98 @@ document.addEventListener('DOMContentLoaded', () => {
   injectCrisisSheet();
   initScrollAwareMasthead();
   initNativeShare();
+  initPullToRefresh();
+  initInstallHint();
   registerServiceWorker();
 });
+
+// ─── Pull-to-refresh (iPhone-native gesture) ───────────────────────────────
+function initPullToRefresh() {
+  // Only on phone-sized viewports + on pages where refresh makes sense
+  const mq = window.matchMedia('(max-width: 799px)');
+  if (!mq.matches) return;
+  const refreshable = ['/', '/news', '/events'];
+  if (!refreshable.includes(window.location.pathname)) return;
+
+  // Inject indicator
+  const indicator = document.createElement('div');
+  indicator.className = 'ptr-indicator';
+  indicator.id = 'ptr-indicator';
+  indicator.innerHTML = '↓ Pull to refresh';
+  document.body.appendChild(indicator);
+
+  let startY = 0;
+  let pulling = false;
+  const threshold = 70;
+
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY > 0) return;
+    startY = e.touches[0].clientY;
+    pulling = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!pulling) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 0 && window.scrollY === 0) {
+      const dist = Math.min(dy * 0.5, threshold + 40);
+      indicator.style.transform = `translate(-50%, ${Math.min(dist, threshold + 20)}px)`;
+      indicator.classList.add('show');
+      indicator.innerHTML = dy > threshold * 1.6 ? '↻ Release to refresh' : '↓ Pull to refresh';
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', (e) => {
+    if (!pulling) return;
+    pulling = false;
+    const dy = (e.changedTouches[0]?.clientY || 0) - startY;
+    if (dy > threshold * 1.6 && window.scrollY === 0) {
+      indicator.innerHTML = '↻ Refreshing…';
+      indicator.style.transform = `translate(-50%, ${threshold}px)`;
+      setTimeout(() => location.reload(), 300);
+    } else {
+      indicator.classList.remove('show');
+      indicator.style.transform = '';
+    }
+  }, { passive: true });
+}
+
+// ─── PWA Install Hint (iOS Safari Add to Home Screen) ──────────────────────
+// iOS doesn't expose beforeinstallprompt — show a one-time hint banner on
+// the second visit explaining how to add to home screen.
+function initInstallHint() {
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if (!isIOS || isStandalone) return;
+
+  const KEY = 'vn:installHint:v1';
+  const state = JSON.parse(localStorage.getItem(KEY) || '{"visits":0,"dismissed":false}');
+  state.visits = (state.visits || 0) + 1;
+  localStorage.setItem(KEY, JSON.stringify(state));
+  if (state.dismissed || state.visits < 2) return;
+
+  // Inject hint banner
+  const hint = document.createElement('div');
+  hint.className = 'install-hint';
+  hint.innerHTML = `
+    <div class="install-hint-body">
+      <span class="install-hint-icon">VN</span>
+      <span class="install-hint-text">
+        <strong>Pin Veteran News to your home screen</strong>
+        <small>Tap <span class="install-share-icon">⎘</span> Share, then "Add to Home Screen."</small>
+      </span>
+      <button class="install-hint-close" aria-label="Dismiss">✕</button>
+    </div>
+  `;
+  document.body.appendChild(hint);
+  hint.querySelector('.install-hint-close').addEventListener('click', () => {
+    hint.classList.remove('show');
+    state.dismissed = true;
+    localStorage.setItem(KEY, JSON.stringify(state));
+  });
+  // Show after a brief settle so it doesn't compete with first-paint
+  setTimeout(() => hint.classList.add('show'), 1500);
+}
 
 // ─── Bottom tab bar (iPhone signature pattern) ─────────────────────────────
 // Auto-injected on every page. Visible only on phones via CSS.

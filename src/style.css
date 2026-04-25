@@ -2387,8 +2387,153 @@ textarea:-webkit-autofill {
   box-shadow: var(--shadow);
   transition: transform 0.2s var(--ease);
   pointer-events: none;
+  white-space: nowrap;
 }
 .ptr-indicator.show { transform: translate(-50%, 8px); }
+
+/* ─── PWA Install hint (iOS Add-to-Home-Screen) ──────────────────────────── */
+.install-hint {
+  position: fixed;
+  left: var(--s-3);
+  right: var(--s-3);
+  bottom: calc(var(--tabbar-height) + var(--safe-bottom) + 12px);
+  z-index: 85;
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 28px rgba(13, 35, 64, 0.18);
+  transform: translateY(140%);
+  opacity: 0;
+  transition: transform 0.3s var(--ease), opacity 0.25s var(--ease);
+  pointer-events: none;
+}
+.install-hint.show { transform: translateY(0); opacity: 1; pointer-events: auto; }
+.install-hint-body {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+}
+.install-hint-icon {
+  width: 36px; height: 36px;
+  background: var(--navy);
+  color: var(--gold-bright);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  font-family: var(--font-headline);
+  font-weight: 700;
+  font-size: 0.8125rem;
+}
+.install-hint-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.install-hint-text strong { font-size: 0.875rem; font-weight: 600; color: var(--ink); }
+.install-hint-text small { font-size: 0.75rem; color: var(--ink-muted); }
+.install-share-icon {
+  display: inline-block;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--navy);
+  vertical-align: -1px;
+}
+:root[data-theme="dark"] .install-share-icon,
+:root:not([data-theme="light"]) .install-share-icon { color: var(--gold-bright); }
+.install-hint-close {
+  width: 32px; height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.install-hint-close:hover { background: var(--surface); color: var(--ink); }
+@media (min-width: 800px) { .install-hint { display: none !important; } }
+
+/* ─── Reading-mode font-size toggle (story pages) ────────────────────────── */
+.reading-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.reading-toggle button {
+  border: none;
+  background: transparent;
+  padding: 8px 12px;
+  font-family: var(--font-headline);
+  font-weight: 700;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  min-height: 36px;
+}
+.reading-toggle button:nth-child(1) { font-size: 0.75rem; }
+.reading-toggle button:nth-child(2) { font-size: 0.9375rem; }
+.reading-toggle button:nth-child(3) { font-size: 1.125rem; }
+.reading-toggle button.active {
+  background: var(--navy);
+  color: white;
+}
+:root[data-theme="dark"] .reading-toggle button.active,
+:root:not([data-theme="light"]) .reading-toggle button.active {
+  background: var(--gold);
+  color: var(--navy-deep);
+}
+.reading-toggle button + button { border-left: 1px solid var(--rule); }
+
+/* Reading-mode size classes applied to <body> */
+body.reading-sm .story-body { font-size: 1rem; line-height: 1.65; }
+body.reading-sm .story-body p { margin-bottom: var(--s-3); }
+body.reading-lg .story-body { font-size: 1.25rem; line-height: 1.75; }
+body.reading-lg .story-body p { margin-bottom: var(--s-5); }
+@media (max-width: 799px) {
+  body.reading-sm .story-body { font-size: 0.9375rem; }
+  body.reading-lg .story-body { font-size: 1.1875rem; }
+}
+
+/* ─── Sticky article action rail (Share / Save / Listen) ─────────────────── */
+.article-actions-sticky {
+  position: fixed;
+  bottom: calc(var(--tabbar-height) + var(--safe-bottom));
+  left: 0; right: 0;
+  z-index: 75;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--rule);
+  padding: var(--s-2) var(--s-4);
+  display: flex;
+  gap: var(--s-2);
+  justify-content: space-around;
+  transform: translateY(100%);
+  transition: transform 0.25s var(--ease);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  backdrop-filter: saturate(180%) blur(12px);
+}
+.article-actions-sticky.show { transform: translateY(0); }
+@media (min-width: 800px) { .article-actions-sticky { display: none !important; } }
+.aas-btn {
+  flex: 1;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+}
+.aas-btn svg { width: 22px; height: 22px; stroke-width: 2; }
+.aas-btn.active { color: var(--gold); }
+.aas-btn:active { opacity: 0.7; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    PHASE 2 — National Publication Components
@@ -3206,30 +3351,11 @@ body.no-scroll { overflow: hidden; }
   box-shadow: 0 12px 40px rgba(200, 49, 61, 0.45), 0 2px 8px rgba(0,0,0,0.2);
   color: white;
 }
-/* Mobile FAB overrides — must come AFTER the base .crisis-fab rule above */
+/* On phones the FAB is redundant — 988 pill is fixed at the top of every
+   page, /crisis is one tap from the bottom tab bar, and crisis CTAs sit
+   inside every relevant section. Hide the FAB to reduce mobile clutter. */
 @media (max-width: 799px) {
-  .crisis-fab {
-    bottom: calc(var(--tabbar-height) + var(--safe-bottom) + 12px);
-    right: 14px;
-    padding: 13px 18px 13px 14px;
-    font-size: 0.8125rem;
-    min-height: 44px;
-    box-shadow: 0 6px 20px rgba(200, 49, 61, 0.4), 0 1px 4px rgba(0,0,0,0.15);
-  }
-  .crisis-fab.crisis-fab-compact {
-    padding: 0;
-    width: 56px;
-    height: 56px;
-    min-width: 56px;
-    border-radius: 50%;
-    justify-content: center;
-  }
-  .crisis-fab.crisis-fab-compact::before { width: 10px; height: 10px; }
-  .crisis-fab::before { width: 9px; height: 9px; }
-  .crisis-fab .crisis-fab-mobile-text { display: none; }
-  .crisis-fab .crisis-fab-full-text { display: inline; }
-  .crisis-fab.crisis-fab-compact .crisis-fab-full-text { display: none; }
-  .crisis-fab.crisis-fab-compact .crisis-fab-mobile-text { display: inline; font-weight: 700; }
+  .crisis-fab { display: none !important; }
 }
 @media (min-width: 800px) {
   .crisis-fab .crisis-fab-mobile-text { display: none; }
