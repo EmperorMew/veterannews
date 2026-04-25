@@ -24,10 +24,12 @@ binding = "DB"
 database_name = "veterannews-archive"
 database_id = "67d49add-b24c-404a-88f1-8bcdf63f8220"
 
-# Static assets
+# Static assets — worker runs FIRST so SSR routes can intercept HTML pages
+# before the asset handler returns the static file.
 [assets]
 directory = "./dist"
 binding = "ASSETS"
+run_worker_first = true
 
 # Analytics Engine for pageview tracking
 [[analytics_engine_datasets]]

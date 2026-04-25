@@ -3187,6 +3187,67 @@ body.reading-lg .story-body p { margin-bottom: var(--s-5); }
 .source-avatar.src-legion { background: #002868; }
 .source-avatar.src-default { background: var(--navy); }
 
+/* ─── Pull quotes inside story body ──────────────────────────────────────── */
+.story-body blockquote.pull-quote,
+.story-body .pull-quote {
+  font-family: var(--font-headline);
+  font-style: italic;
+  font-size: 1.625rem;
+  line-height: 1.3;
+  color: var(--ink);
+  border: none;
+  padding: var(--s-5) 0 var(--s-5) var(--s-6);
+  margin: var(--s-6) 0;
+  position: relative;
+  border-left: 4px solid var(--gold);
+}
+.story-body .pull-quote::before {
+  content: '"';
+  position: absolute;
+  top: -8px;
+  left: var(--s-3);
+  font-size: 4.5rem;
+  font-family: var(--font-headline);
+  color: var(--gold);
+  line-height: 1;
+  opacity: 0.4;
+}
+.story-body .pull-quote cite {
+  display: block;
+  margin-top: var(--s-3);
+  font-style: normal;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+@media (max-width: 799px) {
+  .story-body blockquote.pull-quote,
+  .story-body .pull-quote { font-size: 1.25rem; padding-left: var(--s-5); }
+  .story-body .pull-quote::before { font-size: 3rem; }
+}
+
+/* ─── Image captions in story body ──────────────────────────────────────── */
+.story-hero figcaption {
+  padding: var(--s-3) 0 0;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-style: italic;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+.story-hero figcaption .credit {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  font-style: normal;
+}
+
 /* ─── TL;DR / Quick read card on stories ────────────────────────────────── */
 .tldr {
   background: var(--gold-soft);

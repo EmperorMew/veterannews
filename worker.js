@@ -38,6 +38,12 @@ export default {
     if (pathname === '/api/health' || pathname === '/api/healthz') {
       return handleHealth(env);
     }
+    // Debug: read last homepage error from KV
+    if (pathname === '/api/debug/homepage') {
+      const e = await env.ARTICLES_KV.get('debug:homepage:lasterror');
+      return new Response(e || '{"msg":"no error logged"}',
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
 
     // Public admin dashboard (read-only) — source health, image fill rate, etc.
     if (pathname === '/admin/health' || pathname === '/admin') {
@@ -1290,8 +1296,10 @@ async function serveCategoryPage(env, request, url) {
 
 // ─── Homepage SSR ─────────────────────────────────────────────────────────
 async function serveHomepage(env, url, request) {
+  console.log('[serveHomepage] entered url=', url.pathname);
   try {
     const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+    console.log('[serveHomepage] kv', !!data, data?.articles?.length);
     const allArticles = deduplicateArticles(data?.articles || []).map(a => ({
       ...a,
       excerpt: a.excerpt ? cleanExcerpt(a.excerpt) : a.excerpt
@@ -1308,7 +1316,9 @@ async function serveHomepage(env, url, request) {
     }
     let html = await templateResponse.text();
 
-    // Inject lead story
+    // Inject lead story — replace ONLY the inner content of #lead-story-mount.
+    // Use balanced-tag replacement so structural changes to index.html
+    // don't break SSR injection (the previous regex was fragile).
     const lead = briefing[0];
     if (lead) {
       const leadHtml = `
@@ -1325,7 +1335,7 @@ async function serveHomepage(env, url, request) {
             </div>
           </div>
         </a>`;
-      html = html.replace(/<div id="lead-story-mount">[\s\S]*?<\/div>\s*<\/div>/, `<div id="lead-story-mount">${leadHtml}</div>\n          <ol class="briefing-list" id="briefing-list">__BRF_LIST__</ol>`);
+      html = replaceElementInner(html, 'lead-story-mount', leadHtml);
     }
 
     // Inject briefing list (rest of briefing)
@@ -1339,9 +1349,7 @@ async function serveHomepage(env, url, request) {
             <div class="byline"><span class="byline-source">${escapeHtml(s.source || 'Veteran News')}</span><span class="byline-divider">·</span><span>${formatRelTime(s.publishDate || s.pubDate)}</span></div>
           </a>
         </li>`).join('');
-      html = html.replace('__BRF_LIST__', brfHtml);
-    } else {
-      html = html.replace('__BRF_LIST__', '');
+      html = replaceElementInner(html, 'briefing-list', brfHtml);
     }
 
     // Inject story feed
@@ -1358,8 +1366,7 @@ async function serveHomepage(env, url, request) {
             </div>
           </a>
         </article>`).join('');
-      html = html.replace(/<div class="feed-grid" id="story-list">[\s\S]*?<\/div>\s*<div class="load-more"/,
-        `<div class="feed-grid" id="story-list">${storyHtml}</div>\n        <div class="load-more"`);
+      html = replaceElementInner(html, 'story-list', storyHtml);
     }
 
     // Inject upcoming events server-side
@@ -1384,8 +1391,7 @@ async function serveHomepage(env, url, request) {
             </div>
           </a>`;
       }).join('');
-      html = html.replace(/<div id="events-list" class="event-list">[\s\S]*?<\/div>/,
-        `<div id="events-list" class="event-list">${evHtml}</div>`);
+      html = replaceElementInner(html, 'events-list', evHtml);
     }
 
     // Inject Most Read column (top 5 by qualityScore in last 24h)
@@ -1406,8 +1412,7 @@ async function serveHomepage(env, url, request) {
           <a href="/news/${escapeHtml(s.slug || generateSlug(s.title))}">${escapeHtml(s.title)}</a>
           <span class="most-read-source">${escapeHtml(s.source || 'Veteran News')} · ${formatRelTime(s.publishDate || s.pubDate)}</span>
         </li>`).join('');
-      html = html.replace(/<ol class="most-read-list" id="most-read-list">[\s\S]*?<\/ol>/,
-        `<ol class="most-read-list" id="most-read-list">${mrHtml}</ol>`);
+      html = replaceElementInner(html, 'most-read-list', mrHtml);
     }
 
     // Inject stats
@@ -1433,7 +1438,7 @@ async function serveHomepage(env, url, request) {
       }
     }));
   } catch (error) {
-    console.error('Homepage SSR error:', error);
+    console.error('[serveHomepage] error:', error?.message, error?.stack);
     return env.ASSETS.fetch(request);
   }
 }
@@ -1589,6 +1594,50 @@ async function handleRSS(env, url) {
 function stripTags(s) {
   if (!s) return '';
   return String(s).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Replace the INNER content of an element identified by id="...".
+ * Walks the HTML balancing matched div/section/ol/aside tags so that nested
+ * structures don't break the replacement. Robust to template changes.
+ *
+ * Falls back to the original html if the id isn't found.
+ */
+function replaceElementInner(html, elementId, newInner) {
+  const startRe = new RegExp(`<(div|section|ol|aside|ul|nav|main|article|figure)\\b[^>]*\\bid=["']${elementId}["'][^>]*>`, 'i');
+  const m = html.match(startRe);
+  if (!m) return html;
+  const tagName = m[1].toLowerCase();
+  const startIdx = m.index;
+  const openEndIdx = startIdx + m[0].length;
+
+  // Walk forward balancing same-tag opens/closes
+  const openTagRe = new RegExp(`<${tagName}\\b[^>]*>`, 'gi');
+  const closeTagRe = new RegExp(`<\\/${tagName}\\s*>`, 'gi');
+  openTagRe.lastIndex = openEndIdx;
+  closeTagRe.lastIndex = openEndIdx;
+  let depth = 1;
+  let cursor = openEndIdx;
+  while (depth > 0) {
+    openTagRe.lastIndex = cursor;
+    closeTagRe.lastIndex = cursor;
+    const nextOpen = openTagRe.exec(html);
+    const nextClose = closeTagRe.exec(html);
+    if (!nextClose) return html; // unbalanced — bail
+    if (nextOpen && nextOpen.index < nextClose.index) {
+      depth++;
+      cursor = nextOpen.index + nextOpen[0].length;
+    } else {
+      depth--;
+      cursor = nextClose.index + nextClose[0].length;
+      if (depth === 0) {
+        const innerStart = openEndIdx;
+        const innerEnd = nextClose.index;
+        return html.slice(0, innerStart) + newInner + html.slice(innerEnd);
+      }
+    }
+  }
+  return html;
 }
 
 // ─── Sitemap index + split sitemaps ───────────────────────────────────────
