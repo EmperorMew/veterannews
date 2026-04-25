@@ -46,9 +46,89 @@ async function init() {
   setupMobileNav();
   setupFilters();
   setupNewsletter();
+  setupFeedMode();
+  trackReadingStreak();
   await load();
   setInterval(load, 5 * 60 * 1000);
   setInterval(setDateline, 60 * 1000);
+}
+
+// ─── Reading streak ────────────────────────────────────────────────────────
+const STREAK_KEY = 'vn:streak:v1';
+function trackReadingStreak() {
+  const today = new Date().toISOString().slice(0, 10);
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem(STREAK_KEY) || '{}'); } catch {}
+  if (s.lastDay === today) return;
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  s.streak = s.lastDay === yesterday ? (s.streak || 0) + 1 : 1;
+  s.lastDay = today;
+  localStorage.setItem(STREAK_KEY, JSON.stringify(s));
+}
+
+// ─── Personalized 'For You' feed ──────────────────────────────────────────
+const FEED_MODE_KEY = 'vn:feedMode:v1';
+function getPreferredCategories() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('vn:saved:v1') || '[]');
+    const counts = {};
+    for (const a of saved) if (a.category) counts[a.category] = (counts[a.category] || 0) + 1;
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
+  } catch { return []; }
+}
+
+function setupFeedMode() {
+  const tabs = document.getElementById('filter-tabs');
+  if (!tabs) return;
+  const prefs = getPreferredCategories();
+  if (prefs.length < 2) return;
+  const toggle = document.createElement('div');
+  toggle.className = 'feed-mode';
+  toggle.setAttribute('aria-label', 'Feed mode');
+  toggle.innerHTML = `
+    <button data-mode="all" class="active">Latest</button>
+    <button data-mode="for-you">For You</button>
+  `;
+  tabs.parentElement.insertBefore(toggle, tabs);
+  if (localStorage.getItem(FEED_MODE_KEY) === 'for-you') {
+    toggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    toggle.querySelector('[data-mode="for-you"]').classList.add('active');
+    state.feedMode = 'for-you';
+    state.preferredCats = prefs;
+  }
+  toggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    toggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.feedMode = btn.dataset.mode;
+    state.preferredCats = getPreferredCategories();
+    localStorage.setItem(FEED_MODE_KEY, state.feedMode);
+    state.shown = 9;
+    renderStories();
+  });
+}
+
+// ─── Trending Now strip ────────────────────────────────────────────────────
+function renderTrending(articles) {
+  const mount = document.getElementById('trending-strip-scroll');
+  if (!mount) return;
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const recent = articles.filter(a => {
+    const t = a.publishDate ? new Date(a.publishDate).getTime() : 0;
+    return t >= dayAgo;
+  });
+  const pool = recent.length >= 8 ? recent : articles;
+  const counts = {};
+  for (const a of pool) {
+    if (!a.category) continue;
+    counts[a.category] = (counts[a.category] || 0) + 1;
+  }
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (!top.length) return;
+  mount.innerHTML = top.map(([cat, count]) =>
+    `<a href="/${esc(cat)}" class="trending-pill">${esc(cat.charAt(0).toUpperCase() + cat.slice(1))}<span class="trending-pill-count">${count}</span></a>`
+  ).join('');
 }
 
 // ─── Header / dateline ─────────────────────────────────────────────────────
@@ -135,6 +215,7 @@ async function load() {
     renderStatus(data.lastUpdate);
     renderBriefing(briefing.length ? briefing : state.articles.slice(0, 4));
     renderEvents(data.events || []);
+    renderTrending(state.articles);
     renderStories();
     renderMostRead(state.articles);
     checkAlerts(state.articles);
@@ -350,7 +431,16 @@ function setupFilters() {
 
 function renderStories() {
   if (!el.storyList) return;
-  const stories = state.articles.filter(a => !state.briefingIds.has(a.id));
+  let stories = state.articles.filter(a => !state.briefingIds.has(a.id));
+  if (state.feedMode === 'for-you' && state.preferredCats?.length) {
+    const prefs = new Set(state.preferredCats);
+    stories.sort((a, b) => {
+      const aPref = prefs.has(a.category) ? 1 : 0;
+      const bPref = prefs.has(b.category) ? 1 : 0;
+      if (aPref !== bPref) return bPref - aPref;
+      return new Date(b.publishDate || 0) - new Date(a.publishDate || 0);
+    });
+  }
   const visible = stories.slice(0, state.shown);
 
   if (!visible.length) {

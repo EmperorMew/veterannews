@@ -979,6 +979,7 @@ function injectArticleData(template, article) {
         <a class="action-btn" href="mailto:?subject=${shareTitle}&body=${shareUrl}" aria-label="Share via email">✉</a>
       </div>
       ${article.image ? `<figure class="story-hero"><img src="${escapeHtml(article.image)}" alt="${escapeHtml(article.title || '')}" onerror="this.parentElement.outerHTML='<figure class=\\'story-hero\\'>${placeholderHtml(article, 'hero').replace(/'/g, '\\\'')}</figure>';this.onerror=null"></figure>` : `<figure class="story-hero">${placeholderHtml(article, 'hero')}</figure>`}
+      ${article.excerpt && article.excerpt.length > 60 ? `<aside class="tldr" aria-label="Quick summary"><div class="tldr-eyebrow">Quick read</div><p>${escapeHtml(article.excerpt.slice(0, 320))}</p></aside>` : ''}
       <div class="story-body">
         ${formatArticleContent(article.content || article.excerpt || 'No content available.')}
       </div>
@@ -2334,6 +2335,7 @@ async function serveSavedPage(env, url, request) {
         <div class="eyebrow">Your Library</div>
         <h1>Saved articles</h1>
         <p>Stories you've bookmarked — kept locally on this device. Save up to 50.</p>
+        <div id="streak-mount" style="margin-top:var(--s-4);"></div>
       </div>
     </section>
     <div class="container">
@@ -2376,6 +2378,16 @@ async function serveSavedPage(env, url, request) {
       // Wait for shared.js to expose VN
       const tryRender = () => window.VN ? renderSaved() : setTimeout(tryRender, 50);
       tryRender();
+
+      // Reading streak chip
+      try {
+        const s = JSON.parse(localStorage.getItem('vn:streak:v1') || '{}');
+        const streak = s.streak || 0;
+        if (streak > 1) {
+          document.getElementById('streak-mount').innerHTML =
+            \`<span class="streak-chip"><span class="streak-chip-fire">🔥</span> <span class="streak-chip-num">\${streak}</span> day reading streak</span>\`;
+        }
+      } catch {}
     </script>`;
 
   return new Response(shellPage({
