@@ -13,10 +13,16 @@ workers_dev = true
 [vars]
 ENVIRONMENT = "production"
 
-# KV namespace for articles storage
+# KV namespace for articles (hot cache)
 [[kv_namespaces]]
 binding = "ARTICLES_KV"
 id = "8d609fee75f546bc8ebfc83386d82f68"
+
+# D1 — permanent canonical archive
+[[d1_databases]]
+binding = "DB"
+database_name = "veterannews-archive"
+database_id = "67d49add-b24c-404a-88f1-8bcdf63f8220"
 
 # Static assets
 [assets]

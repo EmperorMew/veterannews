@@ -11,7 +11,13 @@ crons = ["0 */6 * * *", "30 */2 * * *", "0 4 * * *"]
 [vars]
 ENVIRONMENT = "production"
 
-# KV namespace (same as main worker)
+# KV namespace (hot cache, shared with main worker)
 [[kv_namespaces]]
 binding = "ARTICLES_KV"
 id = "8d609fee75f546bc8ebfc83386d82f68"
+
+# D1 — permanent canonical archive (shared with main worker)
+[[d1_databases]]
+binding = "DB"
+database_name = "veterannews-archive"
+database_id = "67d49add-b24c-404a-88f1-8bcdf63f8220"

@@ -247,6 +247,12 @@ export default {
       return jsonResponse({ status: 'Image backfill initiated', timestamp: new Date().toISOString() });
     }
 
+    // One-time D1 migration — copy entire KV blob to D1
+    if (url.pathname === '/migrate-kv-to-d1' && request.method === 'POST') {
+      const result = await migrateKvToD1(env);
+      return jsonResponse(result);
+    }
+
     // Manual dead-link sweep
     if (url.pathname === '/dead-link-sweep' && request.method === 'POST') {
       ctx.waitUntil(deadLinkSweep(env));
@@ -402,8 +408,123 @@ async function scrapeAllSources(env) {
 
   await env.ARTICLES_KV.put('articles', JSON.stringify(updatedData));
 
+  // Mirror to D1 for permanent archive (best-effort — KV remains source of truth for hot reads)
+  if (env.DB) {
+    try {
+      const d1Stats = await mirrorToD1(env.DB, allNewArticles, sourceResults);
+      console.log(`📦 D1 archive: ${d1Stats.inserted} inserted, ${d1Stats.skipped} skipped`);
+    } catch (e) {
+      console.error('D1 mirror failed:', e.message);
+    }
+  }
+
   console.log(`🎖️ Scrape complete: ${allNewArticles.length} new articles, ${mergedArticles.length} total`);
   return updatedData;
+}
+
+function slugifySource(name) {
+  return (name || 'unknown')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+function countWords(text) {
+  return (text || '').split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Mirror new articles + source health to D1.
+ * Uses INSERT OR IGNORE so re-runs are idempotent on PRIMARY KEY.
+ * Batched to stay under D1 statement limits.
+ */
+async function mirrorToD1(db, newArticles, sourceResults) {
+  let inserted = 0;
+  let skipped = 0;
+
+  // Article inserts — batch in chunks of 25 with prepared statement
+  const chunkSize = 25;
+  for (let i = 0; i < newArticles.length; i += chunkSize) {
+    const chunk = newArticles.slice(i, i + chunkSize);
+    const stmts = chunk.map(a => {
+      const sourceSlug = slugifySource(a.source);
+      const wordCount = countWords(a.content);
+      return db.prepare(`
+        INSERT OR IGNORE INTO articles (
+          id, slug, title, excerpt, content, category, author,
+          publish_date, modified_date, image, source, source_slug, source_url,
+          service_branch, priority, quality_score, low_quality,
+          link_status, word_count, scraped_at, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        a.id, a.slug, a.title, a.excerpt || null, a.content || null,
+        a.category || null, a.author || null,
+        a.publishDate, a.publishDate, a.image || null,
+        a.source, sourceSlug, a.sourceUrl || null,
+        a.serviceBranch || null, a.priority || 3,
+        a.qualityScore || 0, a.lowQuality ? 1 : 0,
+        'unknown', wordCount, a.scrapedAt, new Date().toISOString()
+      );
+    });
+    try {
+      const results = await db.batch(stmts);
+      for (const r of results) {
+        if (r.meta?.changes > 0) inserted++; else skipped++;
+      }
+    } catch (e) {
+      console.error('D1 batch failed:', e.message);
+      skipped += chunk.length;
+    }
+  }
+
+  // Update archive_days counts
+  if (newArticles.length) {
+    const dayCounts = {};
+    for (const a of newArticles) {
+      const day = a.publishDate.slice(0, 10);
+      dayCounts[day] = (dayCounts[day] || 0) + 1;
+    }
+    const dayStmts = Object.entries(dayCounts).map(([day, n]) => db.prepare(`
+      INSERT INTO archive_days (date, article_count, updated_at)
+      VALUES (?, ?, datetime('now'))
+      ON CONFLICT(date) DO UPDATE SET
+        article_count = article_count + excluded.article_count,
+        updated_at = datetime('now')
+    `).bind(day, n));
+    try { await db.batch(dayStmts); } catch (e) { console.error('archive_days batch failed:', e.message); }
+  }
+
+  // Source health snapshot
+  const healthStmts = sourceResults.map(r => db.prepare(`
+    INSERT INTO source_health (source_slug, score, consecutive_failures, suspended,
+      last_success, last_error, last_error_at, runs, total_articles, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT runs FROM source_health WHERE source_slug=?),0)+1,
+            COALESCE((SELECT total_articles FROM source_health WHERE source_slug=?),0)+?, datetime('now'))
+    ON CONFLICT(source_slug) DO UPDATE SET
+      score = excluded.score,
+      consecutive_failures = excluded.consecutive_failures,
+      suspended = excluded.suspended,
+      last_success = COALESCE(excluded.last_success, last_success),
+      last_error = excluded.last_error,
+      last_error_at = excluded.last_error_at,
+      runs = runs + 1,
+      total_articles = total_articles + ?,
+      updated_at = excluded.updated_at
+  `).bind(
+    slugifySource(r.name),
+    r.status === 'success' ? 100 : (r.status === 'suspended' ? 0 : 50),
+    r.status === 'error' ? 1 : 0,
+    r.status === 'suspended' ? 1 : 0,
+    r.status === 'success' ? new Date().toISOString() : null,
+    r.status === 'error' ? r.error : null,
+    r.status === 'error' ? new Date().toISOString() : null,
+    slugifySource(r.name), slugifySource(r.name), r.new || 0,
+    r.new || 0
+  ));
+  try { await db.batch(healthStmts); } catch (e) { console.error('source_health batch failed:', e.message); }
+
+  return { inserted, skipped };
 }
 
 // =============================================================================
@@ -1470,6 +1591,73 @@ async function deadLinkSweep(env) {
   await env.ARTICLES_KV.put('articles', JSON.stringify(data));
   console.log(`🔗 Dead-link sweep: ${broken}/${checked} broken`);
   return { checked, broken };
+}
+
+/**
+ * One-time migration: copy all KV articles into D1.
+ * Idempotent — re-running is safe (INSERT OR IGNORE).
+ */
+async function migrateKvToD1(env) {
+  if (!env.DB) return { error: 'no D1' };
+  const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+  if (!data?.articles) return { error: 'no articles in KV' };
+
+  const articles = data.articles;
+  let inserted = 0;
+  let skipped = 0;
+  const chunkSize = 25;
+
+  for (let i = 0; i < articles.length; i += chunkSize) {
+    const chunk = articles.slice(i, i + chunkSize);
+    const stmts = chunk.map(a => {
+      const sourceSlug = slugifySource(a.source);
+      const wordCount = countWords(a.content);
+      return env.DB.prepare(`
+        INSERT OR IGNORE INTO articles (
+          id, slug, title, excerpt, content, category, author,
+          publish_date, modified_date, image, source, source_slug, source_url,
+          service_branch, priority, quality_score, low_quality,
+          link_status, link_status_code, last_link_check, word_count, scraped_at, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        a.id, a.slug, a.title, a.excerpt || null, a.content || null,
+        a.category || null, a.author || null,
+        a.publishDate, a.publishDate, a.image || null,
+        a.source, sourceSlug, a.sourceUrl || null,
+        a.serviceBranch || null, a.priority || 3,
+        a.qualityScore || 0, a.lowQuality ? 1 : 0,
+        a.linkStatus || 'unknown', a.linkStatusCode || null, a.lastLinkCheck || null,
+        wordCount, a.scrapedAt || a.publishDate, new Date().toISOString()
+      );
+    });
+    try {
+      const results = await env.DB.batch(stmts);
+      for (const r of results) {
+        if (r.meta?.changes > 0) inserted++; else skipped++;
+      }
+    } catch (e) {
+      console.error('migrate batch failed:', e.message);
+      skipped += chunk.length;
+    }
+  }
+
+  // Rebuild archive_days from full set
+  const dayCounts = {};
+  for (const a of articles) {
+    const day = (a.publishDate || '').slice(0, 10);
+    if (day) dayCounts[day] = (dayCounts[day] || 0) + 1;
+  }
+  const dayChunks = Object.entries(dayCounts);
+  for (let i = 0; i < dayChunks.length; i += 50) {
+    const sub = dayChunks.slice(i, i + 50);
+    const stmts = sub.map(([day, n]) => env.DB.prepare(`
+      INSERT INTO archive_days (date, article_count, updated_at) VALUES (?, ?, datetime('now'))
+      ON CONFLICT(date) DO UPDATE SET article_count = excluded.article_count, updated_at = datetime('now')
+    `).bind(day, n));
+    try { await env.DB.batch(stmts); } catch (e) { console.error('archive_days migrate failed:', e.message); }
+  }
+
+  return { migrated: true, inserted, skipped, total: articles.length, days: Object.keys(dayCounts).length };
 }
 
 /**

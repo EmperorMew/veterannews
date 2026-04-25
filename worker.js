@@ -97,6 +97,9 @@ export default {
     if (pathname === '/sitemap-news.xml') {
       return handleNewsSitemap(env);
     }
+    if (pathname === '/sitemap-images.xml') {
+      return handleImageSitemap(env);
+    }
 
     // AI discoverability
     if (pathname === '/llms.txt') {
@@ -156,6 +159,28 @@ export default {
     if (pathname === '/topics' || pathname === '/topics/') {
       return serveTopicsIndex(env, url, request);
     }
+
+    // Archive — date-based browsing (Google "publication issue" signal)
+    if (pathname === '/archive' || pathname === '/archive/') {
+      return serveArchiveIndex(env, url, request);
+    }
+    const archiveYearMatch = pathname.match(/^\/archive\/(\d{4})\/?$/);
+    if (archiveYearMatch) return serveArchiveYear(env, url, request, archiveYearMatch[1]);
+    const archiveMonthMatch = pathname.match(/^\/archive\/(\d{4})\/(\d{2})\/?$/);
+    if (archiveMonthMatch) return serveArchiveMonth(env, url, request, archiveMonthMatch[1], archiveMonthMatch[2]);
+    const archiveDayMatch = pathname.match(/^\/archive\/(\d{4})\/(\d{2})\/(\d{2})\/?$/);
+    if (archiveDayMatch) return serveArchiveDay(env, url, request, archiveDayMatch[1], archiveDayMatch[2], archiveDayMatch[3]);
+
+    // Source pages /source/[slug]
+    if (pathname === '/sources' || pathname === '/sources/') {
+      return serveSourcesIndex(env, url, request);
+    }
+    const sourceMatch = pathname.match(/^\/source\/([a-z0-9-]+)\/?$/);
+    if (sourceMatch) return serveSourcePage(env, url, request, sourceMatch[1]);
+
+    // Author pages
+    const authorMatch = pathname.match(/^\/author\/([a-z0-9-]+)\/?$/);
+    if (authorMatch) return serveAuthorPage(env, url, request, authorMatch[1]);
 
     // Tools / calculators
     if (pathname === '/tools' || pathname === '/tools/' || pathname === '/calculators') {
@@ -781,7 +806,30 @@ async function serveArticleBySlug(env, url, request) {
     }
     const template = await templateResponse.text();
     const html = injectArticleData(template, article);
-    return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600', 'X-SSR': 'true' } });
+    const lastModDate = article.updatedAt || article.modifiedAt || article.publishDate;
+    const headers = {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'X-SSR': 'true'
+    };
+    if (lastModDate) {
+      try {
+        const lm = new Date(lastModDate).toUTCString();
+        headers['Last-Modified'] = lm;
+        // Weak ETag using id + lastmod
+        headers['ETag'] = `W/"${article.id || article.slug || 'a'}-${new Date(lastModDate).getTime()}"`;
+      } catch {}
+    }
+    // Honor If-Modified-Since
+    const ims = request.headers.get('If-Modified-Since');
+    if (ims && lastModDate) {
+      try {
+        if (new Date(ims).getTime() >= new Date(lastModDate).getTime()) {
+          return new Response(null, { status: 304, headers });
+        }
+      } catch {}
+    }
+    return new Response(html, { status: 200, headers });
   } catch (error) {
     console.error('Article slug error:', error);
     return new Response('Error loading article', { status: 500 });
@@ -1260,6 +1308,7 @@ async function handleSitemapIndex(env) {
   <sitemap><loc>${baseUrl}/sitemap-pages.xml</loc><lastmod>${now}</lastmod></sitemap>
   <sitemap><loc>${baseUrl}/sitemap-articles.xml</loc><lastmod>${now}</lastmod></sitemap>
   <sitemap><loc>${baseUrl}/sitemap-news.xml</loc><lastmod>${now}</lastmod></sitemap>
+  <sitemap><loc>${baseUrl}/sitemap-images.xml</loc><lastmod>${now}</lastmod></sitemap>
 </sitemapindex>`;
   return new Response(xml, { status: 200, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
 }
@@ -1278,6 +1327,8 @@ async function handleSitemapPages(env) {
     { path: '/donate', priority: 0.8, freq: 'monthly' },
     { path: '/topics', priority: 0.7, freq: 'weekly' },
     { path: '/branches', priority: 0.7, freq: 'weekly' },
+    { path: '/archive', priority: 0.7, freq: 'daily' },
+    { path: '/sources', priority: 0.7, freq: 'weekly' },
     { path: '/tools', priority: 0.7, freq: 'monthly' },
     { path: '/newsletter', priority: 0.6, freq: 'monthly' },
     { path: '/editorial-standards', priority: 0.5, freq: 'yearly' },
@@ -1303,20 +1354,38 @@ async function handleSitemapPages(env) {
 
 async function handleSitemapArticles(env) {
   const baseUrl = `https://${CONFIG.publication.domain}`;
-  try {
-    const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
-    const articles = deduplicateArticles(data?.articles || []);
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">`;
-    for (const a of articles.slice(0, 50000)) {
-      const slug = a.slug || generateSlug(a.title);
-      const lastmod = a.publishDate ? new Date(a.publishDate).toISOString() : '';
-      xml += `\n  <url><loc>${baseUrl}/news/${slug}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}<changefreq>weekly</changefreq><priority>0.8</priority>${a.image ? `<image:image><image:loc>${escapeHtml(a.image)}</image:loc><image:title>${escapeHtml(a.title || '')}</image:title></image:image>` : ''}</url>`;
-    }
-    xml += '\n</urlset>';
-    return new Response(xml, { status: 200, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
-  } catch (e) {
-    return new Response(`<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${baseUrl}/news</loc></url></urlset>`, { status: 200, headers: { 'Content-Type': 'application/xml' } });
+  let articles = [];
+
+  // Prefer D1 for the full archive (no 2000-cap, supports modified_date for accurate lastmod)
+  if (env.DB) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT slug, title, image, publish_date, modified_date
+        FROM articles WHERE link_status != 'broken' AND low_quality = 0
+        ORDER BY publish_date DESC LIMIT 50000
+      `).all();
+      articles = (rs.results || []).map(r => ({
+        slug: r.slug, title: r.title, image: r.image,
+        publishDate: r.publish_date, modifiedDate: r.modified_date
+      }));
+    } catch (e) { console.error('sitemap d1 fail', e?.message); }
   }
+  // Fallback to KV
+  if (!articles.length) {
+    try {
+      const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+      articles = deduplicateArticles(data?.articles || []);
+    } catch {}
+  }
+
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">`;
+  for (const a of articles.slice(0, 50000)) {
+    const slug = a.slug || generateSlug(a.title);
+    const lastmod = (a.modifiedDate || a.publishDate) ? new Date(a.modifiedDate || a.publishDate).toISOString() : '';
+    xml += `\n  <url><loc>${baseUrl}/news/${slug}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}<changefreq>weekly</changefreq><priority>0.8</priority>${a.image ? `<image:image><image:loc>${escapeHtml(a.image)}</image:loc><image:title>${escapeHtml(a.title || '')}</image:title></image:image>` : ''}</url>`;
+  }
+  xml += '\n</urlset>';
+  return new Response(xml, { status: 200, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
 }
 
 // Google News sitemap — last 48 hours only, with news: namespace
@@ -2632,4 +2701,453 @@ async function serveContactPage(env, url, request) {
     lede: 'How to get in touch with the team behind Veteran News.',
     body
   }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// D1 ARCHIVE — date-based archive, source pages, author pages, image sitemap
+// All read from D1 when available, fall back to KV blob.
+// ════════════════════════════════════════════════════════════════════════════
+
+async function d1Available(env) {
+  return !!env.DB;
+}
+
+function slugifyForUrl(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+}
+
+function articleRowToObj(row) {
+  return {
+    id: row.id, slug: row.slug, title: row.title, excerpt: row.excerpt,
+    content: row.content, category: row.category, author: row.author,
+    publishDate: row.publish_date, modifiedDate: row.modified_date,
+    image: row.image, source: row.source, sourceSlug: row.source_slug,
+    sourceUrl: row.source_url, serviceBranch: row.service_branch,
+    priority: row.priority, qualityScore: row.quality_score,
+    lowQuality: !!row.low_quality, linkStatus: row.link_status,
+    wordCount: row.word_count
+  };
+}
+
+// ── Archive index ─────────────────────────────────────────────────────────
+async function serveArchiveIndex(env, url, request) {
+  let years = [];
+  if (await d1Available(env)) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT substr(date, 1, 4) AS year, COUNT(*) AS days, SUM(article_count) AS articles
+        FROM archive_days GROUP BY substr(date, 1, 4) ORDER BY year DESC
+      `).all();
+      years = rs.results || [];
+    } catch (e) { console.error('archive index d1 fail', e); }
+  }
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  const breadcrumbLd = {
+    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${baseUrl}/` },
+      { '@type': 'ListItem', position: 2, name: 'Archive', item: `${baseUrl}/archive` }
+    ]
+  };
+  const yearTiles = years.length ? years.map(y => `
+    <a href="/archive/${y.year}" class="topic-tile">
+      <span class="topic-tile-name">${escapeHtml(y.year)}</span>
+      <span class="topic-tile-count">${y.articles || 0} articles · ${y.days || 0} days</span>
+    </a>`).join('') : '<p class="loading">Archive is being populated. Check back soon.</p>';
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <div class="eyebrow">The Archive</div>
+        <h1 class="page-title">Every story we've ever curated.</h1>
+        <p class="page-lede">Browse the full archive of veteran news. Every article preserved with stable URLs — for research, citation, or to find that piece you remember.</p>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <div class="section-head"><div><div class="eyebrow">By Year</div><h2 class="section-title">Archive index</h2></div></div>
+        <div class="topics-grid">${yearTiles}</div>
+      </section>
+    </div>`;
+  return new Response(shellPage({
+    title: 'News Archive — Veteran News',
+    description: 'Complete archive of veteran news, organized by date.',
+    canonicalPath: '/archive',
+    navActive: '',
+    contentHtml: content,
+    extraHead: `<script type="application/ld+json">${JSON.stringify(breadcrumbLd)}</script>`
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+async function serveArchiveYear(env, url, request, year) {
+  let months = [];
+  if (await d1Available(env)) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT substr(date, 6, 2) AS month, COUNT(*) AS days, SUM(article_count) AS articles
+        FROM archive_days WHERE substr(date, 1, 4) = ? GROUP BY substr(date, 6, 2) ORDER BY month DESC
+      `).bind(year).all();
+      months = rs.results || [];
+    } catch {}
+  }
+  const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const tiles = months.length ? months.map(m => `
+    <a href="/archive/${year}/${m.month}" class="topic-tile">
+      <span class="topic-tile-name">${escapeHtml(monthNames[parseInt(m.month, 10)] || m.month)} ${year}</span>
+      <span class="topic-tile-count">${m.articles || 0} articles · ${m.days || 0} days</span>
+    </a>`).join('') : '<p class="loading">No data for this year.</p>';
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <a href="/archive" class="back-link">← Archive index</a>
+        <div class="eyebrow">Year ${escapeHtml(year)}</div>
+        <h1 class="page-title">${escapeHtml(year)}</h1>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <div class="topics-grid">${tiles}</div>
+      </section>
+    </div>`;
+  return new Response(shellPage({
+    title: `${year} Archive — Veteran News`,
+    description: `Veteran news archive for ${year}.`,
+    canonicalPath: `/archive/${year}`,
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+async function serveArchiveMonth(env, url, request, year, month) {
+  let days = [];
+  if (await d1Available(env)) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT date, article_count FROM archive_days
+        WHERE substr(date, 1, 7) = ? ORDER BY date DESC
+      `).bind(`${year}-${month}`).all();
+      days = rs.results || [];
+    } catch {}
+  }
+  const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthName = monthNames[parseInt(month, 10)] || month;
+  const tiles = days.length ? days.map(d => {
+    const day = d.date.slice(8, 10);
+    return `<a href="/archive/${year}/${month}/${day}" class="topic-tile">
+      <span class="topic-tile-name">${monthName} ${parseInt(day, 10)}</span>
+      <span class="topic-tile-count">${d.article_count} articles</span>
+    </a>`;
+  }).join('') : '<p class="loading">No data for this month.</p>';
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <a href="/archive/${year}" class="back-link">← ${year}</a>
+        <div class="eyebrow">Month</div>
+        <h1 class="page-title">${escapeHtml(monthName)} ${escapeHtml(year)}</h1>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <div class="topics-grid">${tiles}</div>
+      </section>
+    </div>`;
+  return new Response(shellPage({
+    title: `${monthName} ${year} Archive — Veteran News`,
+    description: `Veteran news archive for ${monthName} ${year}.`,
+    canonicalPath: `/archive/${year}/${month}`,
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+async function serveArchiveDay(env, url, request, year, month, day) {
+  const dateStr = `${year}-${month}-${day}`;
+  let articles = [];
+  if (await d1Available(env)) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT id, slug, title, excerpt, category, author, publish_date, image,
+               source, source_slug, source_url, service_branch
+        FROM articles
+        WHERE substr(publish_date, 1, 10) = ? AND link_status != 'broken' AND low_quality = 0
+        ORDER BY publish_date DESC
+      `).bind(dateStr).all();
+      articles = (rs.results || []).map(articleRowToObj);
+    } catch {}
+  }
+  const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+  const dateLabel = `${monthNames[parseInt(month, 10)] || month} ${parseInt(day, 10)}, ${year}`;
+
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  // PublicationIssue / Newspaper "edition" schema for Google News
+  const issueLd = {
+    '@context': 'https://schema.org',
+    '@type': 'PublicationIssue',
+    issueNumber: dateStr,
+    datePublished: dateStr,
+    isPartOf: { '@id': `${baseUrl}/#website` },
+    inLanguage: 'en-US',
+    hasPart: articles.slice(0, 20).map(a => ({
+      '@type': 'NewsArticle',
+      headline: a.title,
+      url: `${baseUrl}/news/${a.slug}`,
+      datePublished: a.publishDate,
+      author: { '@type': 'Organization', name: a.source }
+    }))
+  };
+  const breadcrumbLd = {
+    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${baseUrl}/` },
+      { '@type': 'ListItem', position: 2, name: 'Archive', item: `${baseUrl}/archive` },
+      { '@type': 'ListItem', position: 3, name: year, item: `${baseUrl}/archive/${year}` },
+      { '@type': 'ListItem', position: 4, name: dateLabel, item: `${baseUrl}/archive/${year}/${month}/${day}` }
+    ]
+  };
+
+  const list = articles.length ? articles.map(s => `
+    <li class="row">
+      <a href="/news/${escapeHtml(s.slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);">
+        <span class="tag">${escapeHtml((s.category || 'news').toUpperCase())}</span>
+        <h3 class="row-title">${escapeHtml(s.title)}</h3>
+        ${s.excerpt ? `<p class="row-excerpt">${escapeHtml((s.excerpt || '').slice(0, 200))}</p>` : ''}
+        <div class="byline"><span class="byline-source">${escapeHtml(s.source || '')}</span><span class="byline-divider">·</span><span>${formatRelTime(s.publishDate)}</span></div>
+      </a>
+      <a href="/news/${escapeHtml(s.slug)}">${img(s, 'row')}</a>
+    </li>`).join('') : '<li class="loading">No articles indexed for this day.</li>';
+
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <a href="/archive/${year}/${month}" class="back-link">← ${monthNames[parseInt(month, 10)]} ${year}</a>
+        <div class="eyebrow">Edition · Issue ${escapeHtml(dateStr)}</div>
+        <h1 class="page-title">${escapeHtml(dateLabel)}</h1>
+        <p class="page-lede">${articles.length} ${articles.length === 1 ? 'story' : 'stories'} curated for veterans on this date.</p>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <ul class="row-list">${list}</ul>
+      </section>
+    </div>`;
+  const ld = `<script type="application/ld+json">${JSON.stringify([breadcrumbLd, issueLd])}</script>`;
+  return new Response(shellPage({
+    title: `${dateLabel} — Veteran News`,
+    description: `Veteran news archive for ${dateLabel}. ${articles.length} stories.`,
+    canonicalPath: `/archive/${year}/${month}/${day}`,
+    navActive: '',
+    contentHtml: content,
+    extraHead: ld
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'Last-Modified': new Date(`${dateStr}T23:59:59Z`).toUTCString()
+    }
+  });
+}
+
+// ── Sources index + source pages ──────────────────────────────────────────
+async function serveSourcesIndex(env, url, request) {
+  let sources = [];
+  if (await d1Available(env)) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT source, source_slug, COUNT(*) AS article_count
+        FROM articles WHERE low_quality = 0 AND link_status != 'broken'
+        GROUP BY source_slug ORDER BY article_count DESC
+      `).all();
+      sources = rs.results || [];
+    } catch {}
+  }
+  const tiles = sources.length ? sources.map(s => `
+    <a href="/source/${escapeHtml(s.source_slug)}" class="topic-tile">
+      <span class="topic-tile-name">${escapeHtml(s.source)}</span>
+      <span class="topic-tile-count">${s.article_count} stories</span>
+    </a>`).join('') : '<p class="loading">No source data yet.</p>';
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <div class="eyebrow">Our Network</div>
+        <h1 class="page-title">Sources we curate.</h1>
+        <p class="page-lede">Every story on Veteran News comes from one of these vetted publications. Click any source to see all of their work we've covered.</p>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <div class="topics-grid">${tiles}</div>
+      </section>
+    </div>`;
+  return new Response(shellPage({
+    title: 'Our Sources — Veteran News',
+    description: 'The vetted sources Veteran News curates from.',
+    canonicalPath: '/sources',
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
+}
+
+async function serveSourcePage(env, url, request, sourceSlug) {
+  let articles = [];
+  let sourceName = sourceSlug;
+  if (await d1Available(env)) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT id, slug, title, excerpt, category, publish_date, image,
+               source, source_slug, source_url, author
+        FROM articles
+        WHERE source_slug = ? AND link_status != 'broken' AND low_quality = 0
+        ORDER BY publish_date DESC LIMIT 100
+      `).bind(sourceSlug).all();
+      articles = (rs.results || []).map(articleRowToObj);
+      if (articles[0]) sourceName = articles[0].source;
+    } catch {}
+  }
+  if (articles.length === 0) {
+    return new Response(shellPage({
+      title: 'Source not found — Veteran News',
+      description: 'No articles indexed for this source yet.',
+      canonicalPath: `/source/${sourceSlug}`,
+      navActive: '',
+      contentHtml: `<div class="container"><div class="loading" style="padding:var(--s-9);">No articles indexed for this source. <a href="/sources">Browse all sources</a>.</div></div>`,
+      extraHead: '<meta name="robots" content="noindex">'
+    }), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  const list = articles.map(s => `
+    <li class="row">
+      <a href="/news/${escapeHtml(s.slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);">
+        <span class="tag">${escapeHtml((s.category || 'news').toUpperCase())}</span>
+        <h3 class="row-title">${escapeHtml(s.title)}</h3>
+        ${s.excerpt ? `<p class="row-excerpt">${escapeHtml((s.excerpt || '').slice(0, 200))}</p>` : ''}
+        <div class="byline">${formatRelTime(s.publishDate)}</div>
+      </a>
+      <a href="/news/${escapeHtml(s.slug)}">${img(s, 'row')}</a>
+    </li>`).join('');
+
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <a href="/sources" class="back-link">← All sources</a>
+        <div class="eyebrow">Source</div>
+        <h1 class="page-title">${escapeHtml(sourceName)}</h1>
+        <p class="page-lede">${articles.length} ${articles.length === 1 ? 'story' : 'stories'} curated from ${escapeHtml(sourceName)}.</p>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <ul class="row-list">${list}</ul>
+      </section>
+    </div>`;
+  return new Response(shellPage({
+    title: `${sourceName} — Veteran News`,
+    description: `${articles.length} stories curated from ${sourceName}.`,
+    canonicalPath: `/source/${sourceSlug}`,
+    navActive: '',
+    contentHtml: content
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
+}
+
+async function serveAuthorPage(env, url, request, authorSlug) {
+  let articles = [];
+  let authorName = authorSlug.replace(/-/g, ' ');
+  if (await d1Available(env)) {
+    try {
+      // Author slugs are derived from name; match LIKE on slugified author
+      const rs = await env.DB.prepare(`
+        SELECT id, slug, title, excerpt, category, publish_date, image,
+               source, source_slug, source_url, author
+        FROM articles
+        WHERE LOWER(REPLACE(REPLACE(author, ' ', '-'), '.', '')) = LOWER(?)
+          AND link_status != 'broken' AND low_quality = 0
+        ORDER BY publish_date DESC LIMIT 50
+      `).bind(authorSlug).all();
+      articles = (rs.results || []).map(articleRowToObj);
+      if (articles[0]) authorName = articles[0].author;
+    } catch {}
+  }
+  if (articles.length === 0) {
+    return new Response(shellPage({
+      title: 'Author not found — Veteran News',
+      description: 'No articles indexed for this author.',
+      canonicalPath: `/author/${authorSlug}`,
+      navActive: '',
+      contentHtml: `<div class="container"><div class="loading" style="padding:var(--s-9);">No articles found for this author.</div></div>`,
+      extraHead: '<meta name="robots" content="noindex">'
+    }), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+  const list = articles.map(s => `
+    <li class="row">
+      <a href="/news/${escapeHtml(s.slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);">
+        <span class="tag">${escapeHtml((s.category || 'news').toUpperCase())}</span>
+        <h3 class="row-title">${escapeHtml(s.title)}</h3>
+        ${s.excerpt ? `<p class="row-excerpt">${escapeHtml((s.excerpt || '').slice(0, 200))}</p>` : ''}
+        <div class="byline"><span class="byline-source">${escapeHtml(s.source || '')}</span><span class="byline-divider">·</span><span>${formatRelTime(s.publishDate)}</span></div>
+      </a>
+      <a href="/news/${escapeHtml(s.slug)}">${img(s, 'row')}</a>
+    </li>`).join('');
+  const personLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Person',
+    name: authorName,
+    url: `https://${CONFIG.publication.domain}/author/${authorSlug}`,
+    jobTitle: 'Journalist',
+    worksFor: { '@type': 'NewsMediaOrganization', name: articles[0]?.source || 'Veteran News' }
+  };
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <div class="eyebrow">Author</div>
+        <h1 class="page-title">${escapeHtml(authorName)}</h1>
+        <p class="page-lede">${articles.length} ${articles.length === 1 ? 'story' : 'stories'} by ${escapeHtml(authorName)}.</p>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <ul class="row-list">${list}</ul>
+      </section>
+    </div>`;
+  return new Response(shellPage({
+    title: `${authorName} — Veteran News`,
+    description: `Stories by ${authorName} on Veteran News.`,
+    canonicalPath: `/author/${authorSlug}`,
+    navActive: '',
+    contentHtml: content,
+    extraHead: `<script type="application/ld+json">${JSON.stringify(personLd)}</script>`
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
+}
+
+// ── Image sitemap ─────────────────────────────────────────────────────────
+async function handleImageSitemap(env) {
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  let articles = [];
+  if (await d1Available(env)) {
+    try {
+      const rs = await env.DB.prepare(`
+        SELECT slug, title, image, publish_date FROM articles
+        WHERE image IS NOT NULL AND image != ''
+          AND link_status != 'broken' AND low_quality = 0
+        ORDER BY publish_date DESC LIMIT 50000
+      `).all();
+      articles = rs.results || [];
+    } catch {}
+  }
+  if (!articles.length) {
+    // Fallback to KV
+    try {
+      const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+      articles = (data?.articles || []).filter(a => a.image).slice(0, 1000)
+        .map(a => ({ slug: a.slug, title: a.title, image: a.image, publish_date: a.publishDate }));
+    } catch {}
+  }
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">`;
+  for (const a of articles) {
+    xml += `\n  <url><loc>${baseUrl}/news/${escapeHtml(a.slug)}</loc><image:image><image:loc>${escapeHtml(a.image)}</image:loc><image:title>${escapeHtml(a.title || '')}</image:title></image:image></url>`;
+  }
+  xml += '\n</urlset>';
+  return new Response(xml, { status: 200, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
 }
