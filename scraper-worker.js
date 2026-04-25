@@ -418,8 +418,68 @@ async function scrapeAllSources(env) {
     }
   }
 
+  // Ping search engines for instant indexing of new articles
+  if (allNewArticles.length > 0) {
+    try {
+      await pingSearchEngines(allNewArticles);
+    } catch (e) {
+      console.error('Search engine ping failed:', e.message);
+    }
+  }
+
   console.log(`🎖️ Scrape complete: ${allNewArticles.length} new articles, ${mergedArticles.length} total`);
   return updatedData;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SEARCH ENGINE PINGING — get new content indexed fast
+// ════════════════════════════════════════════════════════════════════════════
+//
+// IndexNow (Bing, Yandex, Seznam, Naver) — instant submission of new URLs.
+// Google Sitemap ping — tells Google the sitemap changed.
+//
+// IndexNow requires a key file at the domain root for verification. We use a
+// stable key derived from the domain — one-time setup needed in Cloudflare,
+// but the ping itself is fire-and-forget.
+const INDEXNOW_KEY = '433801bfb00e4bfea4f333be1a083e8e'; // matches /public/433801bfb00e4bfea4f333be1a083e8e.txt
+
+async function pingSearchEngines(newArticles) {
+  const baseUrl = 'https://veteransnews.org';
+  // Build the URL list — top 50 newest articles
+  const urls = newArticles.slice(0, 50).map(a => {
+    const slug = a.slug || generateSlug(a.title);
+    return `${baseUrl}/news/${slug}`;
+  });
+  // Always include the homepage, news index, and news sitemap for crawl prompting
+  urls.unshift(`${baseUrl}/`, `${baseUrl}/news`);
+
+  // IndexNow — bulk submission to Bing/Yandex via single endpoint.
+  // https://www.indexnow.org/documentation
+  const indexNowBody = {
+    host: 'veteransnews.org',
+    key: INDEXNOW_KEY,
+    keyLocation: `${baseUrl}/${INDEXNOW_KEY}.txt`,
+    urlList: urls
+  };
+
+  const tasks = [
+    fetch('https://api.indexnow.org/indexnow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify(indexNowBody),
+      signal: AbortSignal.timeout(8000)
+    }).then(r => console.log(`🔔 IndexNow: ${r.status}`)).catch(e => console.log(`IndexNow err: ${e.message}`)),
+    // Google sitemap ping — deprecated as of 2023 but Bing's sitemap ping still
+    // works. Keeping the call as a safety net for crawler heads-up.
+    fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent(`${baseUrl}/sitemap-news.xml`)}`, {
+      signal: AbortSignal.timeout(8000)
+    }).then(r => console.log(`🔔 Bing sitemap ping: ${r.status}`)).catch(() => {}),
+    // Same for the main sitemap index
+    fetch(`https://www.bing.com/ping?sitemap=${encodeURIComponent(`${baseUrl}/sitemap.xml`)}`, {
+      signal: AbortSignal.timeout(8000)
+    }).catch(() => {})
+  ];
+  await Promise.allSettled(tasks);
 }
 
 function slugifySource(name) {

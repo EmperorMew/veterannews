@@ -129,8 +129,7 @@ export default {
 
     // Events page
     if (pathname === '/events') {
-      const eventsRequest = new Request(new URL('/events.html', url.origin), request);
-      return env.ASSETS.fetch(eventsRequest);
+      return serveEventsPage(env, url, request);
     }
 
     // Resources page
@@ -795,9 +794,18 @@ function generateSlug(title) {
 }
 
 async function serveNewsPage(env, url, request) {
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  console.log('[serveNewsPage] entered, url=', url.toString());
   try {
     const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
-    const articles = deduplicateArticles(data?.articles || []).slice(0, 20);
+    console.log('[serveNewsPage] kv loaded', !!data, data?.articles?.length);
+    const allArticles = deduplicateArticles(data?.articles || []);
+    const PAGE_SIZE = 20;
+    const pageParam = parseInt(url.searchParams.get('page') || '1');
+    const page = Math.max(1, isNaN(pageParam) ? 1 : pageParam);
+    const offset = (page - 1) * PAGE_SIZE;
+    const articles = allArticles.slice(offset, offset + PAGE_SIZE);
+    const totalPages = Math.max(1, Math.ceil(allArticles.length / PAGE_SIZE));
 
     let templateResponse = await env.ASSETS.fetch(new Request(new URL('/news.html', url.origin), { method: 'GET', redirect: 'follow' }));
     if ([307, 301, 302].includes(templateResponse.status)) {
@@ -815,16 +823,50 @@ async function serveNewsPage(env, url, request) {
         const rel = formatRelTime(a.publishDate);
         return `<li class="row"><a href="/news/${escapeHtml(slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);"><span class="tag">${escapeHtml(cat)}</span><h3 class="row-title">${escapeHtml(a.title)}</h3>${excerpt ? `<p class="row-excerpt">${escapeHtml(excerpt)}</p>` : ''}<div class="byline"><span class="byline-source">${escapeHtml(a.source || '')}</span><span class="byline-divider">·</span><span>${rel}</span></div></a><a href="/news/${escapeHtml(slug)}">${img(a, 'row')}</a></li>`;
       }).join('');
-      html = html.replace(/<li class="loading">Loading news…<\/li>/, listHtml);
-      html = html.replace(/<li class="loading">Loading news\.\.\.<\/li>/, listHtml);
+      // Use a function-form replacement so $-characters in titles don't get
+      // interpreted as match-group references.
+      html = html.replace(/<li class="loading">Loading news…<\/li>/, () => listHtml);
+      html = html.replace(/<li class="loading">Loading news\.\.\.<\/li>/, () => listHtml);
     }
+
+    // ItemList schema + rel=prev/next pagination links
+    const canonicalUrl = page === 1 ? `${baseUrl}/news` : `${baseUrl}/news?page=${page}`;
+    const prevUrl = page > 1 ? (page === 2 ? `${baseUrl}/news` : `${baseUrl}/news?page=${page - 1}`) : null;
+    const nextUrl = page < totalPages ? `${baseUrl}/news?page=${page + 1}` : null;
+    const itemListLd = {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: page === 1 ? 'Latest Veteran News' : `Veteran News — Page ${page}`,
+      url: canonicalUrl,
+      numberOfItems: articles.length,
+      itemListElement: articles.slice(0, 20).map((a, i) => ({
+        '@type': 'ListItem',
+        position: offset + i + 1,
+        url: `${baseUrl}/news/${a.slug || generateSlug(a.title)}`,
+        name: a.title || ''
+      }))
+    };
+    const headBits = [];
+    if (page > 1) {
+      headBits.push(`<link rel="canonical" href="${canonicalUrl}">`);
+      headBits.push(`<meta name="robots" content="noindex, follow">`);
+    }
+    if (prevUrl) headBits.push(`<link rel="prev" href="${prevUrl}">`);
+    if (nextUrl) headBits.push(`<link rel="next" href="${nextUrl}">`);
+    headBits.push(`<script type="application/ld+json">${JSON.stringify(itemListLd)}</script>`);
+    if (page > 1) {
+      // Drop the static canonical (template hardcodes /news)
+      html = html.replace(/<link rel="canonical" href="[^"]*"\s*\/?>/, '');
+    }
+    const injection = headBits.join('\n  ');
+    html = html.replace('</head>', () => `  ${injection}\n</head>`);
 
     return addSecurityHeaders(new Response(html, {
       status: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'X-SSR': 'true' }
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'X-SSR': 'news' }
     }));
   } catch (error) {
-    // Fallback to client-side rendering
+    console.error('serveNewsPage error:', error?.message);
     const newsRequest = new Request(new URL('/news.html', url.origin), request);
     return env.ASSETS.fetch(newsRequest);
   }
@@ -896,6 +938,17 @@ function injectArticleData(template, article) {
   html = html.replace(/\{\{og:image\}\}/g, ogImage);
   html = html.replace(/\{\{og:url\}\}/g, articleUrl);
 
+  // Build keyword tags: section + branch + extracted keywords from title
+  const titleWords = (article.title || '').toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+  const stopwords = new Set(['that','this','with','from','have','will','about','into','they','them','their','these','those','what','when','where','which','while','your','said','says','says','also','more','than','some','what','being','been']);
+  const keywordList = [
+    articleSection.toLowerCase(),
+    'veterans',
+    ...(article.serviceBranch ? [article.serviceBranch.toLowerCase()] : []),
+    ...titleWords.filter(w => !stopwords.has(w)).slice(0, 5)
+  ];
+  const articleTags = [...new Set(keywordList)].slice(0, 8);
+
   // Inject extra meta tags right before </head>
   const metaTags = `
   <meta property="og:image:width" content="1200" />
@@ -905,16 +958,26 @@ function injectArticleData(template, article) {
   <meta property="article:modified_time" content="${dateModified}" />
   <meta property="article:section" content="${escapeHtml(articleSection)}" />
   <meta property="article:publisher" content="https://${domain}" />
-  <meta name="news_keywords" content="${escapeHtml(articleSection.toLowerCase())}, veterans, ${escapeHtml((article.source || '').toLowerCase())}" />
+  <meta property="article:author" content="${escapeHtml(article.author || article.source || siteName)}" />
+  ${articleTags.map(t => `<meta property="article:tag" content="${escapeHtml(t)}" />`).join('\n  ')}
+  <meta name="news_keywords" content="${escapeHtml(articleTags.join(', '))}" />
+  <meta name="keywords" content="${escapeHtml(articleTags.join(', '))}" />
   <meta name="author" content="${escapeHtml(article.author || article.source || siteName)}" />
-  <link rel="alternate" hreflang="en-us" href="${articleUrl}" />`;
+  <meta name="twitter:label1" content="Reading time" />
+  <meta name="twitter:data1" content="${Math.max(1, Math.ceil(wordCount / 230))} min read" />
+  <meta name="twitter:label2" content="Section" />
+  <meta name="twitter:data2" content="${escapeHtml(articleSection)}" />
+  <link rel="alternate" hreflang="en-us" href="${articleUrl}" />
+  <link rel="alternate" type="application/json" href="${articleUrl}.json" title="${escapeHtml(article.title || '')} (JSON)" />`;
   html = html.replace('</head>', metaTags + '\n</head>');
 
   // NewsArticle schema with full SEO signals + isBasedOn for source attribution
+  const sourceOrigin = (() => { try { return new URL(article.sourceUrl).origin; } catch { return null; } })();
   const newsArticleLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
     '@id': articleUrl + '#article',
+    url: articleUrl,
     headline: (article.title || '').slice(0, 110),
     alternativeHeadline: article.title || '',
     description: article.excerpt || '',
@@ -928,12 +991,30 @@ function injectArticleData(template, article) {
     dateModified,
     inLanguage: 'en-US',
     isAccessibleForFree: true,
+    isFamilyFriendly: true,
     articleSection,
     articleBody: articleBody.slice(0, 5000),
     wordCount,
+    keywords: articleTags,
+    // Speakable selectors — Google Assistant + voice-search compatibility.
+    // Tells voice readers which DOM regions are best for TTS playback.
+    speakable: {
+      '@type': 'SpeakableSpecification',
+      cssSelector: ['.story-title', '.tldr p', '.story-body p']
+    },
     author: article.author
-      ? { '@type': 'Person', name: article.author }
-      : { '@type': 'Organization', name: article.source || siteName, url: article.sourceUrl ? new URL(article.sourceUrl).origin : `https://${domain}` },
+      ? {
+          '@type': 'Person',
+          name: article.author,
+          url: `https://${domain}/author/${article.author.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`,
+          jobTitle: 'Journalist',
+          worksFor: { '@type': 'Organization', name: article.source || siteName }
+        }
+      : {
+          '@type': 'Organization',
+          name: article.source || siteName,
+          url: sourceOrigin || `https://${domain}`
+        },
     publisher: {
       '@type': 'NewsMediaOrganization',
       '@id': `https://${domain}/#organization`,
@@ -3569,12 +3650,37 @@ async function serveScamAlertsPage(env, url, request) {
       </div>
     </div>`;
 
+  // FAQPage schema — every scam becomes a FAQ entry. Eligible for Google's
+  // FAQ rich result on SERP. Doubles SERP real estate.
+  const faqLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: scams.map(s => ({
+      '@type': 'Question',
+      name: `What is the ${s.name} scam targeting veterans?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: `${stripTags(s.summary)} Red flags: ${stripTags(s.flags)} What to do: ${stripTags(s.what)} Report to: ${stripTags(s.report)}`
+      }
+    }))
+  };
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `https://${CONFIG.publication.domain}/` },
+      { '@type': 'ListItem', position: 2, name: 'Find Help', item: `https://${CONFIG.publication.domain}/resources` },
+      { '@type': 'ListItem', position: 3, name: 'Scam Alerts', item: `https://${CONFIG.publication.domain}/scam-alerts` }
+    ]
+  };
+
   return new Response(shellPage({
     title: 'Scam Alerts: 12 Frauds Targeting Veterans — Veteran News',
     description: 'The most common scams targeting U.S. veterans in 2026. Pension poaching, claim sharks, romance scams, fake charities, identity theft. Red flags, what to do, and where to report.',
     canonicalPath: '/scam-alerts',
     navActive: '',
-    contentHtml: content
+    contentHtml: content,
+    extraHead: `<script type="application/ld+json">${JSON.stringify([faqLd, breadcrumbLd])}</script>`
   }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
 }
 
@@ -3827,12 +3933,70 @@ async function serveClaimHelpPage(env, url, request) {
       })();
     </script>`;
 
+  // HowTo schema — eligible for Google's HowTo rich result on SERP
+  const howToLd = {
+    '@context': 'https://schema.org',
+    '@type': 'HowTo',
+    name: 'How to file a VA disability claim and find what you\'re owed',
+    description: 'A 2-minute walkthrough to determine your VA benefits eligibility — PACT Act, Agent Orange, Camp Lejeune, hearing loss, PTSD — and connect to a free VSO who files the claim for you.',
+    totalTime: 'PT2M',
+    estimatedCost: { '@type': 'MonetaryAmount', currency: 'USD', value: '0' },
+    supply: [
+      { '@type': 'HowToSupply', name: 'DD-214 (or other discharge document)' },
+      { '@type': 'HowToSupply', name: 'List of medical conditions and treatment dates' },
+      { '@type': 'HowToSupply', name: 'Service location history (especially burn-pit, Vietnam, Camp Lejeune, Gulf War)' }
+    ],
+    tool: [
+      { '@type': 'HowToTool', name: 'A free Veterans Service Organization (VSO) — DAV, VFW, or American Legion' }
+    ],
+    step: [
+      {
+        '@type': 'HowToStep',
+        position: 1,
+        name: 'Confirm eligibility',
+        text: 'Verify you served on active duty (or activated National Guard / Reserve) and your discharge was other than dishonorable. Honorable, General, or Under Honorable Conditions all qualify. Other-than-honorable discharges may still qualify for some benefits and are often upgradeable.',
+        url: `https://${CONFIG.publication.domain}/claim-help#q1`
+      },
+      {
+        '@type': 'HowToStep',
+        position: 2,
+        name: 'Identify covered service locations',
+        text: 'List where and when you served. Vietnam (Agent Orange), Gulf War 1990-91, post-9/11 deployments to Iraq/Afghanistan/Syria/Horn of Africa (burn pits), Camp Lejeune 1953-1987, and atomic-veteran sites all trigger PACT Act presumptive conditions.',
+        url: `https://${CONFIG.publication.domain}/claim-help#q3`
+      },
+      {
+        '@type': 'HowToStep',
+        position: 3,
+        name: 'Match conditions to presumptive lists',
+        text: 'PACT Act presumptive conditions include many cancers, respiratory illness, hypertension, and reproductive cancers. Agent Orange covers Type 2 diabetes, ischemic heart disease, Parkinson\'s, and several cancers. Hearing loss / tinnitus are the two most-claimed VA disabilities.',
+        url: `https://${CONFIG.publication.domain}/claim-help#q4`
+      },
+      {
+        '@type': 'HowToStep',
+        position: 4,
+        name: 'File for free with a VSO',
+        text: 'Anyone who charges to file a VA claim is breaking federal law (38 USC §5904). DAV, VFW, and American Legion service officers file claims for free in every state. Find your local office through their websites.',
+        url: 'https://www.dav.org/find-your-local-office/'
+      }
+    ]
+  };
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `https://${CONFIG.publication.domain}/` },
+      { '@type': 'ListItem', position: 2, name: 'Find Help', item: `https://${CONFIG.publication.domain}/resources` },
+      { '@type': 'ListItem', position: 3, name: 'Claim Help', item: `https://${CONFIG.publication.domain}/claim-help` }
+    ]
+  };
+
   return new Response(shellPage({
     title: 'Claim Help: What VA Benefits Are You Owed? — Veteran News',
     description: 'Quick 2-minute walkthrough to surface VA benefits you may be eligible for. PACT Act, Agent Orange, Camp Lejeune, presumptive conditions, hearing loss, PTSD. Connects to free VSO claim filing.',
     canonicalPath: '/claim-help',
     navActive: '',
-    contentHtml: content
+    contentHtml: content,
+    extraHead: `<script type="application/ld+json">${JSON.stringify([howToLd, breadcrumbLd])}</script>`
   }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
 }
 
@@ -4342,6 +4506,110 @@ async function handleJsonFeed(env) {
       'Content-Type': 'application/feed+json; charset=utf-8',
       'Cache-Control': 'public, max-age=900',
       'Access-Control-Allow-Origin': '*'
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EVENTS PAGE — SSR with Event schema
+// Each upcoming event becomes a schema.org/Event eligible for Google Events
+// rich result on SERP.
+// ════════════════════════════════════════════════════════════════════════════
+async function serveEventsPage(env, url, request) {
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  let events = [];
+  try {
+    const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
+    events = data?.events || [];
+  } catch {}
+
+  const now = new Date();
+  const upcoming = events
+    .filter(e => e.startDate && new Date(e.startDate) > now)
+    .sort((a, b) => new Date(a.startDate) - new Date(b.startDate))
+    .slice(0, 50);
+
+  // ItemList schema wrapping individual Event objects
+  const itemListLd = upcoming.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'Upcoming Veteran Events',
+    itemListElement: upcoming.slice(0, 30).map((e, i) => {
+      const ev = {
+        '@type': 'Event',
+        name: e.title,
+        startDate: e.startDate,
+        endDate: e.endDate || e.startDate,
+        eventStatus: 'https://schema.org/EventScheduled',
+        eventAttendanceMode: e.isVirtual
+          ? 'https://schema.org/OnlineEventAttendanceMode'
+          : 'https://schema.org/OfflineEventAttendanceMode',
+        url: e.url || baseUrl + '/events',
+        description: (e.description || '').slice(0, 500) || `Veteran event: ${e.title}`,
+        organizer: {
+          '@type': 'Organization',
+          name: e.organization || 'Veteran Community',
+          url: e.url || baseUrl
+        },
+        offers: {
+          '@type': 'Offer',
+          url: e.url || baseUrl + '/events',
+          price: '0',
+          priceCurrency: 'USD',
+          availability: 'https://schema.org/InStock',
+          validFrom: new Date().toISOString()
+        }
+      };
+      if (e.isVirtual) {
+        ev.location = {
+          '@type': 'VirtualLocation',
+          url: e.url || baseUrl + '/events'
+        };
+      } else {
+        const locStr = (e.location && typeof e.location === 'object')
+          ? [e.location.city, e.location.state].filter(Boolean).join(', ')
+          : (typeof e.location === 'string' ? e.location : 'United States');
+        ev.location = {
+          '@type': 'Place',
+          name: locStr || 'United States',
+          address: {
+            '@type': 'PostalAddress',
+            addressLocality: (e.location && e.location.city) || undefined,
+            addressRegion: (e.location && e.location.state) || undefined,
+            addressCountry: 'US'
+          }
+        };
+      }
+      return { '@type': 'ListItem', position: i + 1, item: ev };
+    })
+  } : null;
+
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${baseUrl}/` },
+      { '@type': 'ListItem', position: 2, name: 'Events', item: `${baseUrl}/events` }
+    ]
+  };
+
+  // Fall back to template — inject schema before </head>
+  let resp = await env.ASSETS.fetch(new Request(new URL('/events.html', url.origin), { method: 'GET', redirect: 'follow' }));
+  if ([301, 302, 307].includes(resp.status)) {
+    const loc = resp.headers.get('Location');
+    if (loc) resp = await env.ASSETS.fetch(new Request(new URL(loc, url.origin), { method: 'GET' }));
+  }
+  let html = await resp.text();
+  const ldArr = itemListLd ? [breadcrumbLd, itemListLd] : [breadcrumbLd];
+  const ldScript = `<script type="application/ld+json">${JSON.stringify(ldArr)}</script>`;
+  html = html.replace('</head>', ldScript + '\n</head>');
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=600',
+      'X-SSR': 'events'
     }
   });
 }
