@@ -5,7 +5,7 @@ workers_dev = true
 
 # Cron triggers — full scrape every 6h, image backfill every 2h, dead-link sweep daily
 [triggers]
-crons = ["0 */6 * * *", "30 */2 * * *", "0 4 * * *"]
+crons = ["0 */6 * * *", "30 */2 * * *", "0 4 * * *", "0 5 * * *"]
 
 # Environment
 [vars]

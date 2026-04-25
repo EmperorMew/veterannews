@@ -85,7 +85,7 @@ export default {
     // Article by slug — /news/[slug] (SEO-friendly URLs)
     if (pathname.startsWith('/news/') && !pathname.startsWith('/news-')) {
       if (!pathname.startsWith('/news/category/')) {
-        return serveArticleBySlug(env, url, request);
+        return serveArticleBySlug(env, url, request, ctx);
       }
     }
 
@@ -115,6 +115,9 @@ export default {
     }
     if (pathname === '/sitemap-images.xml') {
       return handleImageSitemap(env);
+    }
+    if (pathname === '/sitemap-topics.xml') {
+      return handleTopicsSitemap(env);
     }
 
     // AI discoverability
@@ -173,6 +176,10 @@ export default {
     // Topics index
     if (pathname === '/topics' || pathname === '/topics/') {
       return serveTopicsIndex(env, url, request);
+    }
+    const topicMatch = pathname.match(/^\/topic\/([a-z0-9-]+)\/?$/);
+    if (topicMatch) {
+      return serveTopicPage(env, url, request, topicMatch[1]);
     }
 
     // Archive — date-based browsing (Google "publication issue" signal)
@@ -375,7 +382,90 @@ async function handleAPI(env, url, request) {
     return serveSources(env, cors);
   }
 
+  if (url.pathname === '/api/most-read') {
+    return serveMostRead(env, cors, url);
+  }
+
+  if (url.pathname === '/api/related') {
+    return serveRelated(env, cors, url);
+  }
+
   return json({ error: 'Not found' }, 404, cors);
+}
+
+async function serveMostRead(env, cors, url) {
+  const window = url.searchParams.get('window') || '24h';
+  const limit = Math.min(parseInt(url.searchParams.get('limit')) || 10, 50);
+  if (!env.DB) return json({ articles: [], window }, 200, cors);
+  try {
+    const col = window === '7d' ? 'views_7d' : window === 'all' ? 'total_views' : 'views_24h';
+    const rs = await env.DB.prepare(`
+      SELECT a.id, a.slug, a.title, a.excerpt, a.category, a.publish_date, a.image, a.source, v.${col} AS views
+      FROM article_view_totals v
+      JOIN articles a ON a.slug = v.article_id
+      WHERE a.link_status != 'broken' AND a.low_quality = 0 AND v.${col} > 0
+      ORDER BY v.${col} DESC LIMIT ?
+    `).bind(limit).all();
+    const articles = (rs.results || []).map(r => ({
+      id: r.id, slug: r.slug, title: r.title, excerpt: r.excerpt, category: r.category,
+      publishDate: r.publish_date, image: r.image, source: r.source, views: r.views
+    }));
+    return json({ articles, window, limit }, 200, cors,
+      { 'Cache-Control': 'public, max-age=300' });
+  } catch (e) {
+    return json({ error: e.message }, 500, cors);
+  }
+}
+
+async function serveRelated(env, cors, url) {
+  const slug = url.searchParams.get('slug');
+  const limit = Math.min(parseInt(url.searchParams.get('limit')) || 5, 20);
+  if (!slug) return json({ error: 'slug required' }, 400, cors);
+  if (!env.DB) return json({ articles: [] }, 200, cors);
+
+  try {
+    // First try the article_relations table (computed by cron)
+    let rs = await env.DB.prepare(`
+      SELECT a.id, a.slug, a.title, a.excerpt, a.category, a.publish_date, a.image, a.source, r.score
+      FROM article_relations r
+      JOIN articles a ON a.slug = r.related_id
+      WHERE r.article_id = ? AND a.link_status != 'broken' AND a.low_quality = 0
+      ORDER BY r.score DESC LIMIT ?
+    `).bind(slug, limit).all();
+
+    let articles = rs.results || [];
+
+    // Fallback: pull other articles in the same category
+    if (articles.length < limit) {
+      const seedRs = await env.DB.prepare(
+        'SELECT category FROM articles WHERE slug = ? LIMIT 1'
+      ).bind(slug).first();
+      if (seedRs?.category) {
+        const fallback = await env.DB.prepare(`
+          SELECT id, slug, title, excerpt, category, publish_date, image, source
+          FROM articles
+          WHERE slug != ? AND category = ? AND link_status != 'broken' AND low_quality = 0
+          ORDER BY publish_date DESC LIMIT ?
+        `).bind(slug, seedRs.category, limit).all();
+        const have = new Set(articles.map(a => a.slug));
+        for (const a of (fallback.results || [])) {
+          if (have.has(a.slug)) continue;
+          articles.push({ ...a, score: 0 });
+          if (articles.length >= limit) break;
+        }
+      }
+    }
+
+    return json({
+      articles: articles.map(r => ({
+        id: r.id, slug: r.slug, title: r.title, excerpt: r.excerpt,
+        category: r.category, publishDate: r.publish_date,
+        image: r.image, source: r.source, score: r.score
+      }))
+    }, 200, cors, { 'Cache-Control': 'public, max-age=600' });
+  } catch (e) {
+    return json({ error: e.message }, 500, cors);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -612,6 +702,21 @@ function json(data, status = 200, headers = {}, extraHeaders = {}) {
  *   doubles[0] = 1 (count for aggregation)
  *   indexes[0] = siteId (for sampling)
  */
+async function trackArticleView(env, slug) {
+  if (!env.DB || !slug) return;
+  try {
+    await env.DB.prepare(`
+      INSERT INTO article_view_totals (article_id, total_views, views_24h, views_7d, last_viewed)
+      VALUES (?, 1, 1, 1, datetime('now'))
+      ON CONFLICT(article_id) DO UPDATE SET
+        total_views = total_views + 1,
+        views_24h = views_24h + 1,
+        views_7d = views_7d + 1,
+        last_viewed = datetime('now')
+    `).bind(slug).run();
+  } catch {}
+}
+
 async function trackPageview(env, request, pathname, articleId = null) {
   try {
     const cf = request.cf || {};
@@ -872,7 +977,7 @@ async function serveNewsPage(env, url, request) {
   }
 }
 
-async function serveArticleBySlug(env, url, request) {
+async function serveArticleBySlug(env, url, request, ctx) {
   const slug = url.pathname.replace('/news/', '').replace(/\/$/, '');
   try {
     const data = await env.ARTICLES_KV.get('articles', { type: 'json' });
@@ -880,6 +985,19 @@ async function serveArticleBySlug(env, url, request) {
     let article = articles.find(a => a.slug === slug);
     if (!article) article = articles.find(a => generateSlug(a.title) === slug);
     if (!article) return new Response('Article not found', { status: 404 });
+
+    // Track view (non-blocking)
+    if (ctx?.waitUntil) ctx.waitUntil(trackArticleView(env, article.slug || slug));
+
+    // Pre-compute related articles for SSR (faster perceived load, better SEO)
+    let relatedArticles = [];
+    try {
+      const sameCategory = articles
+        .filter(a => a !== article && a.category === article.category && a.linkStatus !== 'broken' && !a.lowQuality)
+        .slice(0, 6);
+      relatedArticles = sameCategory.slice(0, 3);
+    } catch {}
+    article.__related = relatedArticles;
 
     let templateResponse = await env.ASSETS.fetch(new Request(new URL('/story.html', url.origin), { method: 'GET', redirect: 'follow' }));
     if ([307, 301, 302].includes(templateResponse.status)) {
@@ -1082,7 +1200,35 @@ function injectArticleData(template, article) {
         ${formatArticleContent(article.content || article.excerpt || 'No content available.')}
       </div>
       ${article.sourceUrl ? `<div class="story-source">Originally reported by <strong>${escapeHtml(article.source || 'Source')}</strong>. <a href="${escapeHtml(article.sourceUrl)}" target="_blank" rel="noopener">Read the original article →</a></div>` : ''}
-      <div class="related-articles" id="related-articles"></div>`;
+      ${article.__related && article.__related.length ? `
+        <section class="related-articles">
+          <div class="section-head" style="margin-top: var(--s-7);">
+            <div>
+              <div class="eyebrow">More like this</div>
+              <h2 class="section-title">Related ${escapeHtml(articleSection)} stories</h2>
+            </div>
+            <a href="/${escapeHtml((article.category || 'news').toLowerCase())}" class="section-link">All in section</a>
+          </div>
+          <div class="feed-grid">
+            ${article.__related.map(r => {
+              const rSlug = r.slug || generateSlug(r.title);
+              return `<article class="card">
+                <a href="/news/${escapeHtml(rSlug)}" style="display:flex;flex-direction:column;flex:1;">
+                  ${r.image ? `<img class="card-image" src="${escapeHtml(r.image)}" alt="${escapeHtml(r.title || '')}" loading="lazy" onerror="this.src='/placeholder.svg';this.onerror=null">` : `<div class="card-image" style="background:var(--surface-2);display:flex;align-items:center;justify-content:center;font-family:var(--font-headline);font-size:2rem;color:var(--ink-soft);">${escapeHtml((r.category || 'N').charAt(0).toUpperCase())}</div>`}
+                  <div class="card-body">
+                    <span class="tag">${escapeHtml((r.category || 'news').charAt(0).toUpperCase() + (r.category || 'news').slice(1))}</span>
+                    <h3 class="card-title">${escapeHtml(r.title)}</h3>
+                    ${r.excerpt ? `<p class="card-excerpt">${escapeHtml(cleanExcerpt(r.excerpt).slice(0, 140))}</p>` : ''}
+                    <div class="byline">
+                      ${sourceAvatar(r.source)}
+                      <span class="byline-source">${escapeHtml(r.source || 'Veteran News')}</span>
+                    </div>
+                  </div>
+                </a>
+              </article>`;
+            }).join('')}
+          </div>
+        </section>` : '<div class="related-articles" id="related-articles"></div>'}`;
 
   html = html.replace(
     /<a href="\/" class="back-link">[^<]*Back to briefing<\/a>\s*<div class="loading" id="loading">Loading story…<\/div>/,
@@ -1455,6 +1601,7 @@ async function handleSitemapIndex(env) {
   <sitemap><loc>${baseUrl}/sitemap-articles.xml</loc><lastmod>${now}</lastmod></sitemap>
   <sitemap><loc>${baseUrl}/sitemap-news.xml</loc><lastmod>${now}</lastmod></sitemap>
   <sitemap><loc>${baseUrl}/sitemap-images.xml</loc><lastmod>${now}</lastmod></sitemap>
+  <sitemap><loc>${baseUrl}/sitemap-topics.xml</loc><lastmod>${now}</lastmod></sitemap>
 </sitemapindex>`;
   return new Response(xml, { status: 200, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
 }
@@ -2146,6 +2293,25 @@ async function serveTopicsIndex(env, url, request) {
       return `<a href="/${s}" class="topic-tile"><span class="topic-tile-name">${escapeHtml(meta.title)}</span><span class="topic-tile-count">${counts[s] || 0} stories</span></a>`;
     }).join('');
 
+    // Granular topics (PACT Act, GI Bill, PTSD, etc.) from D1
+    let granularTopics = [];
+    if (env.DB) {
+      try {
+        const rs = await env.DB.prepare(`
+          SELECT slug, name, description, article_count
+          FROM topics WHERE article_count > 0
+          ORDER BY article_count DESC LIMIT 24
+        `).all();
+        granularTopics = rs.results || [];
+      } catch {}
+    }
+    const granularTilesHtml = granularTopics.length ? granularTopics.map(t =>
+      `<a href="/topic/${escapeHtml(t.slug)}" class="topic-tile">
+        <span class="topic-tile-name">${escapeHtml(t.name)}</span>
+        <span class="topic-tile-count">${t.article_count} ${t.article_count === 1 ? 'story' : 'stories'}</span>
+      </a>`
+    ).join('') : '';
+
     const content = `
       <section class="section-hero">
         <div class="container">
@@ -2156,8 +2322,14 @@ async function serveTopicsIndex(env, url, request) {
       </section>
       <div class="container">
         <section class="section">
+          <div class="section-head"><div><div class="eyebrow">By Section</div><h2 class="section-title">Coverage areas</h2></div></div>
           <div class="topics-grid">${tiles}</div>
         </section>
+        ${granularTilesHtml ? `
+        <section class="section">
+          <div class="section-head"><div><div class="eyebrow">By Tag</div><h2 class="section-title">Hot topics</h2></div></div>
+          <div class="topics-grid">${granularTilesHtml}</div>
+        </section>` : ''}
         <section class="section">
           <div class="section-head"><div><div class="eyebrow">By Branch</div><h2 class="section-title">Service branches</h2></div><a href="/branches" class="section-link">Branch hub</a></div>
           <div class="branch-grid">
@@ -3297,12 +3469,43 @@ async function serveSourcePage(env, url, request, sourceSlug) {
         <ul class="row-list">${list}</ul>
       </section>
     </div>`;
+  // CollectionPage + Organization schema for the source
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  const collectionLd = {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    url: `${baseUrl}/source/${sourceSlug}`,
+    name: `${sourceName} on Veteran News`,
+    description: `${articles.length} stories curated from ${sourceName}.`,
+    isPartOf: { '@id': `${baseUrl}/#website` },
+    about: { '@type': 'Organization', name: sourceName },
+    numberOfItems: articles.length,
+    mainEntity: {
+      '@type': 'ItemList',
+      itemListElement: articles.slice(0, 30).map((a, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        url: `${baseUrl}/news/${a.slug}`,
+        name: a.title
+      }))
+    }
+  };
+  const breadcrumbLd = {
+    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${baseUrl}/` },
+      { '@type': 'ListItem', position: 2, name: 'Sources', item: `${baseUrl}/sources` },
+      { '@type': 'ListItem', position: 3, name: sourceName, item: `${baseUrl}/source/${sourceSlug}` }
+    ]
+  };
+
   return new Response(shellPage({
     title: `${sourceName} — Veteran News`,
     description: `${articles.length} stories curated from ${sourceName}.`,
     canonicalPath: `/source/${sourceSlug}`,
     navActive: '',
-    contentHtml: content
+    contentHtml: content,
+    extraHead: `<script type="application/ld+json">${JSON.stringify([collectionLd, breadcrumbLd])}</script>`
   }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
 }
 
@@ -3350,7 +3553,16 @@ async function serveAuthorPage(env, url, request, authorSlug) {
     name: authorName,
     url: `https://${CONFIG.publication.domain}/author/${authorSlug}`,
     jobTitle: 'Journalist',
-    worksFor: { '@type': 'NewsMediaOrganization', name: articles[0]?.source || 'Veteran News' }
+    worksFor: { '@type': 'NewsMediaOrganization', name: articles[0]?.source || 'Veteran News' },
+    knowsAbout: ['veteran affairs', 'military news', 'VA benefits', articles[0]?.category].filter(Boolean)
+  };
+  const breadcrumbLd = {
+    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `https://${CONFIG.publication.domain}/` },
+      { '@type': 'ListItem', position: 2, name: 'Authors', item: `https://${CONFIG.publication.domain}/sources` },
+      { '@type': 'ListItem', position: 3, name: authorName, item: `https://${CONFIG.publication.domain}/author/${authorSlug}` }
+    ]
   };
   const content = `
     <section class="page-hero">
@@ -3371,7 +3583,7 @@ async function serveAuthorPage(env, url, request, authorSlug) {
     canonicalPath: `/author/${authorSlug}`,
     navActive: '',
     contentHtml: content,
-    extraHead: `<script type="application/ld+json">${JSON.stringify(personLd)}</script>`
+    extraHead: `<script type="application/ld+json">${JSON.stringify([personLd, breadcrumbLd])}</script>`
   }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=900' } });
 }
 
@@ -4631,4 +4843,173 @@ async function serveEventsPage(env, url, request) {
       'X-SSR': 'events'
     }
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// /topic/[slug] — fine-grained tag pages (PACT Act, GI Bill, PTSD, etc.)
+// Strong SEO: each maps to a high-volume veteran search term and consolidates
+// all related articles into one anchor URL.
+// ════════════════════════════════════════════════════════════════════════════
+async function serveTopicPage(env, url, request, topicSlug) {
+  if (!env.DB) return new Response('D1 unavailable', { status: 503 });
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+
+  let topic;
+  try {
+    topic = await env.DB.prepare('SELECT slug, name, description, article_count FROM topics WHERE slug = ?').bind(topicSlug).first();
+  } catch {}
+  if (!topic) {
+    return new Response(shellPage({
+      title: 'Topic not found — Veteran News',
+      description: 'No topic found at this URL.',
+      canonicalPath: `/topic/${topicSlug}`,
+      navActive: '',
+      contentHtml: `<div class="container"><div class="loading" style="padding:var(--s-9);text-align:center;">Topic not found. <a href="/topics">Browse all topics →</a></div></div>`,
+      extraHead: '<meta name="robots" content="noindex">'
+    }), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  let articles = [];
+  try {
+    const rs = await env.DB.prepare(`
+      SELECT a.id, a.slug, a.title, a.excerpt, a.category, a.publish_date, a.image, a.source
+      FROM article_topics t
+      JOIN articles a ON a.slug = t.article_id
+      WHERE t.topic_slug = ? AND a.link_status != 'broken' AND a.low_quality = 0
+      ORDER BY a.publish_date DESC LIMIT 50
+    `).bind(topicSlug).all();
+    articles = (rs.results || []).map(articleRowToObj);
+  } catch {}
+
+  const list = articles.length ? articles.map(s => `
+    <li class="row">
+      <a href="/news/${escapeHtml(s.slug)}" class="row-content" style="display:flex;flex-direction:column;gap:var(--s-2);">
+        <span class="tag">${escapeHtml((s.category || 'news').toUpperCase())}</span>
+        <h3 class="row-title">${escapeHtml(s.title)}</h3>
+        ${s.excerpt ? `<p class="row-excerpt">${escapeHtml((s.excerpt || '').slice(0, 200))}</p>` : ''}
+        <div class="byline">
+          ${sourceAvatar(s.source)}
+          <span class="byline-source">${escapeHtml(s.source || '')}</span>
+          <span class="byline-divider">·</span>
+          <span>${formatRelTime(s.publishDate)}</span>
+        </div>
+      </a>
+      <a href="/news/${escapeHtml(s.slug)}">${img(s, 'row')}</a>
+    </li>`).join('') : '<li class="loading">No coverage yet for this topic — check back soon.</li>';
+
+  // Schema.org markup: CollectionPage + ItemList + DefinedTerm
+  const definedTermLd = {
+    '@context': 'https://schema.org',
+    '@type': 'DefinedTerm',
+    '@id': `${baseUrl}/topic/${topicSlug}#term`,
+    name: topic.name,
+    description: topic.description,
+    inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Veteran News topics', url: `${baseUrl}/topics` },
+    url: `${baseUrl}/topic/${topicSlug}`
+  };
+  const collectionLd = {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    url: `${baseUrl}/topic/${topicSlug}`,
+    name: `${topic.name} — Veteran News`,
+    description: topic.description,
+    isPartOf: { '@id': `${baseUrl}/#website` },
+    about: { '@id': `${baseUrl}/topic/${topicSlug}#term` },
+    numberOfItems: articles.length,
+    mainEntity: {
+      '@type': 'ItemList',
+      itemListElement: articles.slice(0, 30).map((a, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        url: `${baseUrl}/news/${a.slug}`,
+        name: a.title
+      }))
+    }
+  };
+  const breadcrumbLd = {
+    '@context': 'https://schema.org', '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${baseUrl}/` },
+      { '@type': 'ListItem', position: 2, name: 'Topics', item: `${baseUrl}/topics` },
+      { '@type': 'ListItem', position: 3, name: topic.name, item: `${baseUrl}/topic/${topicSlug}` }
+    ]
+  };
+
+  const content = `
+    <section class="page-hero">
+      <div class="container">
+        <a href="/topics" class="back-link">← All topics</a>
+        <div class="eyebrow">Topic</div>
+        <h1 class="page-title">${escapeHtml(topic.name)}</h1>
+        <p class="page-lede">${escapeHtml(topic.description || '')} <span style="color:var(--ink-soft);">${articles.length} ${articles.length === 1 ? 'story' : 'stories'} on this topic.</span></p>
+      </div>
+    </section>
+    <div class="container">
+      <section class="section">
+        <ul class="row-list">${list}</ul>
+      </section>
+    </div>`;
+
+  return new Response(shellPage({
+    title: `${topic.name} — Veteran News`,
+    description: `${articles.length} stories about ${topic.name} for U.S. veterans. ${topic.description || ''}`.slice(0, 160),
+    canonicalPath: `/topic/${topicSlug}`,
+    navActive: '',
+    contentHtml: content,
+    extraHead: `<script type="application/ld+json">${JSON.stringify([definedTermLd, collectionLd, breadcrumbLd])}</script>`
+  }), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' } });
+}
+
+// Topics sitemap — every topic + section + branch + state aggregation page
+async function handleTopicsSitemap(env) {
+  const baseUrl = `https://${CONFIG.publication.domain}`;
+  let topics = [];
+  let authors = [];
+  let sources = [];
+  if (env.DB) {
+    try {
+      const tRs = await env.DB.prepare(`SELECT slug FROM topics WHERE article_count > 0`).all();
+      topics = tRs.results || [];
+      // Authors with at least 2 stories
+      const aRs = await env.DB.prepare(`
+        SELECT LOWER(REPLACE(REPLACE(author, ' ', '-'), '.', '')) AS slug, COUNT(*) AS c
+        FROM articles WHERE author IS NOT NULL AND author != '' AND author != 'Veteran News'
+          AND link_status != 'broken' AND low_quality = 0
+        GROUP BY slug HAVING c >= 2 LIMIT 200
+      `).all();
+      authors = aRs.results || [];
+      // All distinct sources
+      const sRs = await env.DB.prepare(`SELECT DISTINCT source_slug FROM articles WHERE source_slug IS NOT NULL AND link_status != 'broken'`).all();
+      sources = sRs.results || [];
+    } catch {}
+  }
+  const SECTIONS = ['benefits', 'health', 'service', 'transition', 'advocacy', 'legacy', 'community', 'family'];
+  const BRANCHES = ['army', 'navy', 'air-force', 'marines', 'coast-guard', 'space-force'];
+  const STATES = Object.keys(STATE_NAMES);
+  const now = new Date().toISOString();
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`;
+  for (const t of topics) {
+    xml += `\n  <url><loc>${baseUrl}/topic/${escapeHtml(t.slug)}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
+  }
+  for (const s of SECTIONS) {
+    xml += `\n  <url><loc>${baseUrl}/${s}</loc><lastmod>${now}</lastmod><changefreq>hourly</changefreq><priority>0.85</priority></url>`;
+  }
+  for (const b of BRANCHES) {
+    xml += `\n  <url><loc>${baseUrl}/branch/${b}</loc><lastmod>${now}</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>`;
+  }
+  for (const st of STATES) {
+    xml += `\n  <url><loc>${baseUrl}/state/${st.toLowerCase()}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`;
+  }
+  for (const a of authors) {
+    if (a.slug && a.slug.length > 1) {
+      xml += `\n  <url><loc>${baseUrl}/author/${escapeHtml(a.slug)}</loc><lastmod>${now}</lastmod><changefreq>weekly</changefreq><priority>0.5</priority></url>`;
+    }
+  }
+  for (const s of sources) {
+    if (s.source_slug) {
+      xml += `\n  <url><loc>${baseUrl}/source/${escapeHtml(s.source_slug)}</loc><lastmod>${now}</lastmod><changefreq>daily</changefreq><priority>0.6</priority></url>`;
+    }
+  }
+  xml += '\n</urlset>';
+  return new Response(xml, { status: 200, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } });
 }

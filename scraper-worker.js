@@ -214,6 +214,16 @@ export default {
       ctx.waitUntil(deadLinkSweep(env));
       return;
     }
+    // Relations + topics + view-window reset (daily 05:00 UTC)
+    if (event.cron === '0 5 * * *') {
+      console.log('🔗 Daily compute (relations + topics + view reset) starting...');
+      ctx.waitUntil((async () => {
+        await resetViewWindows(env);
+        await computeArticleRelations(env);
+        await populateTopics(env);
+      })());
+      return;
+    }
     // Default: full scrape (every 6h)
     console.log('🎖️ Veteran News Scraper: Starting scheduled scrape...');
     ctx.waitUntil(scrapeAllSources(env));
@@ -257,6 +267,21 @@ export default {
     if (url.pathname === '/dead-link-sweep' && request.method === 'POST') {
       ctx.waitUntil(deadLinkSweep(env));
       return jsonResponse({ status: 'Dead link sweep initiated', timestamp: new Date().toISOString() });
+    }
+
+    // Manual relations + topics computation
+    if (url.pathname === '/compute-relations' && request.method === 'POST') {
+      ctx.waitUntil(computeArticleRelations(env));
+      return jsonResponse({ status: 'Relations compute initiated', timestamp: new Date().toISOString() });
+    }
+    if (url.pathname === '/compute-topics' && request.method === 'POST') {
+      ctx.waitUntil(populateTopics(env));
+      return jsonResponse({ status: 'Topics population initiated', timestamp: new Date().toISOString() });
+    }
+    // Reset 24h/7d view counters (called by cron)
+    if (url.pathname === '/reset-view-windows' && request.method === 'POST') {
+      ctx.waitUntil(resetViewWindows(env));
+      return jsonResponse({ status: 'View window reset initiated', timestamp: new Date().toISOString() });
     }
 
     // Source health
@@ -1762,4 +1787,171 @@ async function handleSourceHealth(env) {
     lastDeadLinkSweep: data?.lastDeadLinkSweep ?? null,
     checkedAt: new Date().toISOString()
   }, 200, { 'Cache-Control': 'public, max-age=60' });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// ARTICLE RELATIONS — compute "more like this" links
+// ════════════════════════════════════════════════════════════════════════════
+const STOP_WORDS = new Set(['that','this','with','from','have','will','about','into','they','them','their','these','those','what','when','where','which','while','your','said','also','more','than','some','being','been','were','will','would','could','should','here','there','only','most','very','same']);
+
+function tokenizeTitle(title) {
+  if (!title) return new Set();
+  const tokens = title.toLowerCase().match(/\b[a-z]{4,}\b/g) || [];
+  return new Set(tokens.filter(t => !STOP_WORDS.has(t)));
+}
+
+function jaccard(setA, setB) {
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const x of setA) if (setB.has(x)) intersection++;
+  const union = setA.size + setB.size - intersection;
+  return union > 0 ? intersection / union : 0;
+}
+
+async function computeArticleRelations(env) {
+  if (!env.DB) return { error: 'no D1' };
+  console.log('🔗 Computing article relations...');
+
+  // Get last 500 articles to compute relations for (limit scope to keep CPU under budget)
+  const rs = await env.DB.prepare(`
+    SELECT id, slug, title, category, source, publish_date
+    FROM articles
+    WHERE link_status != 'broken' AND low_quality = 0
+    ORDER BY publish_date DESC LIMIT 500
+  `).all();
+  const arts = rs.results || [];
+  if (!arts.length) return { computed: 0 };
+
+  const tokensBySlug = new Map();
+  for (const a of arts) tokensBySlug.set(a.slug, tokenizeTitle(a.title));
+
+  const stmts = [];
+  let pairs = 0;
+
+  // For each article, find top 8 most-related and write rows
+  for (const a of arts) {
+    const aTokens = tokensBySlug.get(a.slug);
+    const candidates = [];
+    for (const b of arts) {
+      if (a.slug === b.slug) continue;
+      const sameCategory = a.category === b.category ? 1 : 0;
+      const sameSource = a.source === b.source ? 0.3 : 0;
+      const tokenSim = jaccard(aTokens, tokensBySlug.get(b.slug));
+      const score = sameCategory * 0.5 + tokenSim * 0.5 + sameSource;
+      if (score > 0.15) candidates.push({ slug: b.slug, score });
+    }
+    candidates.sort((x, y) => y.score - x.score);
+    const top = candidates.slice(0, 8);
+    for (const t of top) {
+      pairs++;
+      stmts.push(env.DB.prepare(`
+        INSERT INTO article_relations (article_id, related_id, score, reason, computed_at)
+        VALUES (?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(article_id, related_id) DO UPDATE SET
+          score = excluded.score, computed_at = excluded.computed_at
+      `).bind(a.slug, t.slug, t.score, 'auto'));
+    }
+    // Flush in batches of 100 to avoid large transactions
+    if (stmts.length >= 100) {
+      try { await env.DB.batch(stmts.splice(0, 100)); }
+      catch (e) { console.error('relations batch fail', e.message); }
+    }
+  }
+  if (stmts.length) {
+    try { await env.DB.batch(stmts); } catch (e) { console.error(e.message); }
+  }
+  console.log(`🔗 Relations: ${pairs} pairs computed across ${arts.length} articles`);
+  return { computed: pairs, articles: arts.length };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TOPICS — auto-populate from common keywords seen across articles
+// ════════════════════════════════════════════════════════════════════════════
+const SEED_TOPICS = [
+  { slug: 'pact-act', name: 'PACT Act', keywords: ['pact act', 'burn pit', 'toxic exposure'] },
+  { slug: 'gi-bill', name: 'GI Bill', keywords: ['gi bill', 'post-9/11 gi'] },
+  { slug: 'ptsd', name: 'PTSD', keywords: ['ptsd', 'post-traumatic stress'] },
+  { slug: 'tbi', name: 'TBI', keywords: ['tbi', 'traumatic brain injury'] },
+  { slug: 'mst', name: 'MST', keywords: ['mst ', 'military sexual trauma'] },
+  { slug: 'agent-orange', name: 'Agent Orange', keywords: ['agent orange'] },
+  { slug: 'camp-lejeune', name: 'Camp Lejeune', keywords: ['camp lejeune'] },
+  { slug: 'home-loan', name: 'VA Home Loan', keywords: ['va home loan', 'va loan', 'va mortgage'] },
+  { slug: 'disability-rating', name: 'Disability Rating', keywords: ['disability rating', 'disability claim', 'disability compensation'] },
+  { slug: 'tricare', name: 'TRICARE', keywords: ['tricare'] },
+  { slug: 'hearing-loss', name: 'Hearing Loss', keywords: ['hearing loss', 'tinnitus'] },
+  { slug: 'caregiver', name: 'Caregivers', keywords: ['caregiver', 'pcafc'] },
+  { slug: 'homeless', name: 'Homeless Veterans', keywords: ['homeless veteran', 'hud-vash', 'ssvf'] },
+  { slug: 'suicide-prevention', name: 'Suicide Prevention', keywords: ['suicide', 'crisis line', '988'] },
+  { slug: 'va-healthcare', name: 'VA Healthcare', keywords: ['va healthcare', 'va medical', 'va clinic'] },
+  { slug: 'transition', name: 'Transition Assistance', keywords: ['transition assistance', 'tap program', 'separating'] },
+  { slug: 'sbp', name: 'SBP / Survivor Benefits', keywords: ['survivor benefit', 'dic ', 'sbp'] },
+  { slug: 'national-guard', name: 'National Guard', keywords: ['national guard', 'reservist'] }
+];
+
+async function populateTopics(env) {
+  if (!env.DB) return { error: 'no D1' };
+  console.log('🏷️  Populating topics...');
+
+  // Insert seed topics
+  const topicStmts = SEED_TOPICS.map(t => env.DB.prepare(`
+    INSERT INTO topics (slug, name, description, parent_category)
+    VALUES (?, ?, ?, NULL)
+    ON CONFLICT(slug) DO NOTHING
+  `).bind(t.slug, t.name, `Coverage of ${t.name} for U.S. veterans`));
+  try { await env.DB.batch(topicStmts); } catch (e) { console.error(e.message); }
+
+  // For each article (last 1000), classify into topics by keyword matching
+  const rs = await env.DB.prepare(`
+    SELECT slug, title, excerpt FROM articles
+    WHERE link_status != 'broken' AND low_quality = 0
+    ORDER BY publish_date DESC LIMIT 1000
+  `).all();
+  const arts = rs.results || [];
+  let assignments = 0;
+  let stmts = [];
+  for (const a of arts) {
+    const hay = `${a.title || ''} ${a.excerpt || ''}`.toLowerCase();
+    for (const topic of SEED_TOPICS) {
+      const matches = topic.keywords.some(k => hay.includes(k));
+      if (matches) {
+        stmts.push(env.DB.prepare(`
+          INSERT INTO article_topics (article_id, topic_slug) VALUES (?, ?)
+          ON CONFLICT(article_id, topic_slug) DO NOTHING
+        `).bind(a.slug, topic.slug));
+        assignments++;
+      }
+    }
+    if (stmts.length >= 100) {
+      try { await env.DB.batch(stmts.splice(0, 100)); }
+      catch (e) { console.error('topics batch', e.message); }
+    }
+  }
+  if (stmts.length) try { await env.DB.batch(stmts); } catch {}
+
+  // Refresh article_count per topic
+  const refreshStmts = SEED_TOPICS.map(t => env.DB.prepare(`
+    UPDATE topics SET article_count = (
+      SELECT COUNT(*) FROM article_topics WHERE topic_slug = ?
+    ) WHERE slug = ?
+  `).bind(t.slug, t.slug));
+  try { await env.DB.batch(refreshStmts); } catch {}
+
+  console.log(`🏷️  Topics: ${assignments} article-topic assignments across ${SEED_TOPICS.length} topics`);
+  return { assignments, topics: SEED_TOPICS.length };
+}
+
+async function resetViewWindows(env) {
+  if (!env.DB) return;
+  const now = new Date().toISOString();
+  // Reset views_24h on rows whose last_24h_reset is over 24h old
+  await env.DB.prepare(`
+    UPDATE article_view_totals
+    SET views_24h = 0, last_24h_reset = ?
+    WHERE last_24h_reset IS NULL OR datetime(last_24h_reset) < datetime('now', '-1 day')
+  `).bind(now).run();
+  await env.DB.prepare(`
+    UPDATE article_view_totals
+    SET views_7d = 0, last_7d_reset = ?
+    WHERE last_7d_reset IS NULL OR datetime(last_7d_reset) < datetime('now', '-7 days')
+  `).bind(now).run();
 }

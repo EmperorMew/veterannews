@@ -89,3 +89,61 @@ CREATE TABLE IF NOT EXISTS archive_days (
   top_categories TEXT,                    -- JSON array
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ─── Round 1 enhancements ───────────────────────────────────────────────
+
+-- Total article view counts (rolled up across all dates) for fast Most Read
+CREATE TABLE IF NOT EXISTS article_view_totals (
+  article_id TEXT PRIMARY KEY,
+  total_views INTEGER NOT NULL DEFAULT 0,
+  views_24h INTEGER NOT NULL DEFAULT 0,
+  views_7d INTEGER NOT NULL DEFAULT 0,
+  last_viewed TEXT,
+  last_24h_reset TEXT,
+  last_7d_reset TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_view_24h ON article_view_totals(views_24h DESC);
+CREATE INDEX IF NOT EXISTS idx_view_7d ON article_view_totals(views_7d DESC);
+CREATE INDEX IF NOT EXISTS idx_view_total ON article_view_totals(total_views DESC);
+
+-- Article-to-article relationships for "More like this" recommendations.
+-- Populated by a cron that scans recent articles and clusters by category +
+-- shared significant tokens.
+CREATE TABLE IF NOT EXISTS article_relations (
+  article_id TEXT NOT NULL,
+  related_id TEXT NOT NULL,
+  score REAL NOT NULL DEFAULT 0,
+  reason TEXT,                            -- 'category', 'tokens', 'source', etc.
+  computed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (article_id, related_id)
+);
+CREATE INDEX IF NOT EXISTS idx_rel_article ON article_relations(article_id, score DESC);
+
+-- Topic / tag table for granular keyword pages beyond categories.
+-- e.g., 'pact-act', 'gi-bill', 'ptsd', 'agent-orange'.
+CREATE TABLE IF NOT EXISTS topics (
+  slug TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  article_count INTEGER NOT NULL DEFAULT 0,
+  parent_category TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS article_topics (
+  article_id TEXT NOT NULL,
+  topic_slug TEXT NOT NULL,
+  PRIMARY KEY (article_id, topic_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_topic_lookup ON article_topics(topic_slug);
+
+-- Search query log — for understanding what veterans actually look for.
+-- Lets us identify content gaps and prioritize new sources/sections.
+CREATE TABLE IF NOT EXISTS search_queries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  query TEXT NOT NULL,
+  result_count INTEGER NOT NULL DEFAULT 0,
+  searched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_search_query ON search_queries(query);
+CREATE INDEX IF NOT EXISTS idx_search_date ON search_queries(searched_at DESC);
